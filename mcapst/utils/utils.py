@@ -1,11 +1,14 @@
 import os.path
-from torchvision import transforms
+from typing import Dict, List, Literal, Union, Iterable, Callable, Tuple, Any
+import torchvision.transforms.v2 as TT
 from PIL import Image
 import torch
 import torchvision.utils as vutils
 import numpy as np
 
-
+#^#####################################################################
+#^ ORIGINAL CAP-VSTNet CODE - will be reused until no longer applicable
+#^#####################################################################
 
 def prepare_sub_folder(output_directory):
     image_directory = os.path.join(output_directory, 'images')
@@ -66,7 +69,6 @@ def print_params(model):
     Total_params = 0
     Trainable_params = 0
     NonTrainable_params = 0
-
     for param in model.parameters():
         mulValue = np.prod(param.size())
         Total_params += mulValue
@@ -74,7 +76,6 @@ def print_params(model):
             Trainable_params += mulValue
         else:
             NonTrainable_params += mulValue
-
     print(f'Total params: {Total_params}')
     print(f'Trainable params: {Trainable_params}')
     print(f'Non-trainable params: {NonTrainable_params}')
@@ -89,7 +90,6 @@ def adjust_learning_rate(optimizer, lr, lr_decay, iteration_count):
 
 def img_resize(img, max_size, down_scale=None):
     w, h = img.size
-
     if max(w, h) > max_size:
         w = int(1.0 * img.size[0] / max(img.size) * max_size)
         h = int(1.0 * img.size[1] / max(img.size) * max_size)
@@ -135,21 +135,42 @@ def load_segment(image_path, size=None):
                                 pass
                     new_seg[x, y] = min_dist_index
         return new_seg.astype(np.uint8)
-
     if not os.path.exists(image_path):
         print("Can not find image path: %s " % image_path)
         return None
-
     image = Image.open(image_path).convert("RGB")
-
     if size is not None:
         w, h = size
-        transform = transforms.Resize((h, w), interpolation=Image.NEAREST)
+        transform = TT.Resize((h, w), interpolation=Image.NEAREST)
         image = transform(image)
-
     image = np.array(image)
     if len(image.shape) == 3:
         image = change_seg(image)
     return image
 
+#^#####################################################################
+#^ END OF ORIGINAL CAP-VSTNet CODE - BEGINNING OF NEW CODE
+#^#####################################################################
 
+def ensure_list_format(str_list: Union[str, Iterable[str]]):
+    if isinstance(str_list, str):
+        str_list = [str_list]
+    elif isinstance(str_list, (list, tuple, set)) and all([isinstance(s, str) for s in str_list]):
+        str_list = list(str_list)
+    else:
+        raise ValueError("`paths` must be a string or an iterable of strings.")
+    return str_list
+
+
+def ensure_file_list_format(paths: Union[str, Iterable[str]]):
+    paths = ensure_list_format(paths)
+    if not all([os.path.isfile(p) for p in paths]):
+        raise ValueError(f"ERROR: All style input paths must be existing files; got \n\t{paths}")
+    return paths
+
+
+def is_given_filetype(paths, file_type: Literal["image", "encoding"]):
+    file_extensions = {"image": {".png", ".jpg", ".jpeg"}, "encoding": {".pt", ".pth"}}
+    paths = ensure_file_list_format(paths)
+    if all(os.path.splitext(p.lower())[1] in file_extensions[file_type] for p in paths):
+        return True

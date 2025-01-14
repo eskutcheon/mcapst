@@ -28,7 +28,6 @@ def is_image_file(filename):
 def make_dataset(dir):
     images = []
     assert os.path.isdir(dir), '%s is not a valid directory' % dir
-
     for root, _, fnames in sorted(os.walk(dir)):
         for fname in fnames:
             if is_image_file(fname):
@@ -38,7 +37,6 @@ def make_dataset(dir):
 
 
 class ImageFolder(data.Dataset):
-
     def __init__(self, root, transform=None, use_lap=False, win_rad=1):
         imgs = []
         if isinstance(root, list):
@@ -46,16 +44,12 @@ class ImageFolder(data.Dataset):
                 imgs = imgs + sorted(make_dataset(r))
         elif isinstance(root, str):
             imgs = sorted(make_dataset(root))
-
         self.imgs = imgs
         self._length = len(self.imgs)
         if self._length == 0:
             raise (RuntimeError("Found 0 images in: " + root + "\nSupported image extensions are: " + ",".join(IMG_EXTENSIONS)))
-
         self.transform = transform
         self.to_tensor = transforms.Compose([transforms.ToTensor()])
-
-
         self.use_lap = use_lap
         self.win_rad = win_rad  # Matting Laplacian params
 
@@ -68,12 +62,10 @@ class ImageFolder(data.Dataset):
             return self.__getitem__(random.randint(0, self._length - 1))
         if self.transform is not None:
             img = self.transform(img)
-
         if self.use_lap:
             laplacian_m = compute_laplacian(img, win_rad=self.win_rad)
         else:
             laplacian_m = None
-
         img = self.to_tensor(img)
         return {'img': img, 'laplacian_m': laplacian_m}
 
@@ -108,9 +100,7 @@ class InfiniteSamplerWrapper(data.sampler.Sampler):
 def collate_fn(batch):
     img = [b['img'] for b in batch]
     img = torch.stack(img, dim=0)
-
     laplacian_m = [b['laplacian_m'] for b in batch]
-
     return {'img': img, 'laplacian_m': laplacian_m}
 
 
@@ -120,10 +110,49 @@ def get_data_loader_folder(input_folder, batch_size, new_size=288, height=256, w
     transform_list = [transforms.Resize(new_size)] + transform_list
     transform = transforms.Compose(transform_list)
     dataset = ImageFolder(input_folder, transform=transform, use_lap=use_lap, win_rad=win_rad)
-    
     if num_workers is None:
         num_workers = 2*batch_size
     loader = DataLoader(dataset=dataset, batch_size=batch_size, drop_last=True, num_workers=num_workers, sampler=InfiniteSamplerWrapper(dataset), collate_fn=collate_fn)
     return loader
 
 
+
+#^###################################################################################################
+#^ END OLD CAP-VSTNet CODE - BEGIN NEW CODE
+#^###################################################################################################
+
+
+class DataManager:
+    def __init__(self, config):
+        self.content_loader = self._get_loader(config["train_content"])
+        self.style_loader = self._get_loader(config["train_style"])
+        self.content_iter = iter(self.content_loader)
+        self.style_iter = iter(self.style_loader)
+
+    def _get_loader(self, data_path):
+        return get_data_loader_folder(data_path, batch_size=8, crop_size=256)
+
+    def get_next_batches(self):
+        try:
+            content_batch = next(self.content_iter)
+        except StopIteration:
+            self.content_iter = iter(self.content_loader)
+            content_batch = next(self.content_iter)
+        try:
+            style_batch = next(self.style_iter)
+        except StopIteration:
+            self.style_iter = iter(self.style_loader)
+            style_batch = next(self.style_iter)
+        return content_batch["img"], style_batch["img"]
+
+    def compute_laplacian_matrices(self, content_batch):
+        """ Computes sparse Laplacian matrices for the content images """
+        laplacian_list = []
+        for content in content_batch:
+            M = content["laplacian_m"]
+            indices = torch.tensor([M.row, M.col], dtype=torch.long, device=self.device)
+            values = torch.tensor(M.data, dtype=torch.float32, device=self.device)
+            shape = torch.Size(M.shape)
+            laplacian = torch.sparse_coo_tensor(indices, values, shape, device=self.device)
+            laplacian_list.append(laplacian)
+        return laplacian_list

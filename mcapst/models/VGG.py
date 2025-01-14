@@ -118,23 +118,18 @@ class VGG19(nn.Module):
         return self.mse_loss(input_mean, target_mean) + self.mse_loss(input_std, target_std)
 
     def forward(self, content_images, style_images, stylized_images, n_layer=4, content_weight=0):
-
         style_feats = self.encode_with_intermediate(style_images, n_layer)
         stylized_feats = self.encode_with_intermediate(stylized_images, n_layer)
-
         # content loss
-
         if content_weight > 0:
             content_feat = self.encode(content_images)
             loss_c = self.calc_content_loss(stylized_feats[3], content_feat)    # relu4_1
         else:
             loss_c = 0
-
         # style loss
         loss_s = self.calc_style_loss(stylized_feats[0], style_feats[0])
         for i in range(1, n_layer):
             loss_s += self.calc_style_loss(stylized_feats[i], style_feats[i])
-
         return loss_c, loss_s
 
 
