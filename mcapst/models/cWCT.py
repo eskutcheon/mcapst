@@ -92,15 +92,7 @@ class cWCT(torch.jit.ScriptModule):
             # if decomposition fails and in training mode, raise an error
             if self.train_mode:
                 raise RuntimeError('Cholesky Decomposition fails. Gradient infinity.')
-            #conv = cWCT.ridge_regularization(conv, epsilon=self.eps, verbose=self.verbose)
-            # if self.verbose:
-            #     conv_copy = conv.clone()
-            #     print(f"\nWARNING: Cholesky Decomposition fails; attempting regularization by {self.reg_method} regression...")
-            #conv = self.ridge_regularization(conv, epsilon=self.eps, verbose=self.verbose)
             conv = self.regularize(conv)
-            # if self.verbose:
-            #     delta = torch.linalg.norm(conv_copy - conv, ord="fro", dim=(-2, -1)).mean()
-            #     print(f"Perturbation effects from regularization (Frobenius avg normed differences over all batches): {delta}")
         # initial Cholesky Decomposition, which would raise RuntimeError if conv is not positive definite, but regularization should prevent that
         L = torch.linalg.cholesky(conv)
         # invert the Cholesky factor if performed on the backwards pass
@@ -120,7 +112,7 @@ class cWCT(torch.jit.ScriptModule):
             :return: feature covariance matrix [B, N, N]
         """
         # compute mean of the input features along the last dimension
-        mean = torch.mean(X, -1)                    # [B, N] (I think)
+        mean = torch.mean(X, -1)                    # [B, N]
         if update_mean:
             # updates the mean before it gets passed back
             mean = mean.unsqueeze(-1).expand_as(X)    # [B, N, H*W]
@@ -132,7 +124,7 @@ class cWCT(torch.jit.ScriptModule):
         # compute covariance matrix
         conv = torch.bmm(X, X.transpose(-1, -2)).div(X.shape[-1] - 1)   # [B, N, N]
         # perform Cholesky Decomposition; get L in the case of coloring transform or L^-1 for whitening transform
-            # (note from authors: "interpolate Conv works well; interpolate L seems to be slightly better")
+            # (note from CAP-VSTNet authors: "interpolate Conv works well; interpolate L seems to be slightly better")
         # ? NOTE: saving L differently (being a lower triangular matrix) could reduce memory requirements by about half
         L = self.cholesky_dec(conv, invert=invert)              # [B, N, N]
         return mean, conv, L
@@ -152,13 +144,13 @@ class cWCT(torch.jit.ScriptModule):
     @torch.jit.script_method
     def coloring(self, whiten_xc: torch.Tensor, xs: torch.Tensor) -> torch.Tensor:
         """ Perform the coloring transform.
-            :param whiten_xc: Whitened content features [B, N, H*W]
-            :param xs: Style features [B, N, H*W]
-            :return: Colored features [B, N, H*W]
+            :param whiten_xc: Whitened content features [B_c, N, H*W]
+            :param xs: Style features [B_s, N, H*W]
+            :return: Colored features [B_c, N, H*W]
         """
         xs_mean, _, Ls = self.get_feature_covariance_and_decomp(xs, invert=False, update_mean=False)
         # apply the coloring transform to the whitened content features
-        coloring_cs = torch.bmm(Ls, whiten_xc)                                # [B, N, H*W]
+        coloring_cs = torch.bmm(Ls.expand(whiten_xc.size(0), -1, -1), whiten_xc)                      # [B_c, N, H*W]
         # Add the mean of the style features back to the colored features
-        coloring_cs += xs_mean.unsqueeze(-1).expand_as(coloring_cs) # [B, N, H*W]
+        coloring_cs += xs_mean.unsqueeze(-1).expand_as(coloring_cs) # [B_c, N, H*W]
         return coloring_cs

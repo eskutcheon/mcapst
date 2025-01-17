@@ -6,22 +6,28 @@ import kornia.filters as KF
 
 
 def ensure_batch_tensor(input: Any) -> Any:
+    """ ensure that the input tensor is a batch tensor with 4 dimensions by front-padding with a singleton dimension """
     while len(input.shape) < 4:
         input = input.unsqueeze(0)
     return input
 
-def scaling_resize(input: torch.Tensor, max_size: int, interp_mode: TT.InterpolationMode):
-    """ scale input so that its longest dimension <= max_size """
-    # ? NOTE: maybe not totally necessary if I keep using exclusively square inputs with sides smaller than max
+
+def get_scaled_dims(input: torch.Tensor, max_size: int) -> Tuple[int, int]:
+    """ get dimensions of input such that longest dimension <= max_size; scales the shorter dimension by the same factor """
     H, W = input.shape[-2:]
     long_dim = max(H, W)
-    # Resize if the larger dimension is greater than max_size
     if long_dim > max_size:
         scale = max_size / float(long_dim)
         H = int(H * scale)
         W = int(W * scale)
+    return H, W
+
+def scaling_resize(input: torch.Tensor, max_size: int, interp_mode: TT.InterpolationMode):
+    """ scale input so that its longest dimension <= max_size """
+    H, W = get_scaled_dims(input, max_size)
     use_antialiasing = interp_mode in [TT.InterpolationMode.BICUBIC, TT.InterpolationMode.BILINEAR]
     return TT.functional.resize(input, [H, W], interp_mode, antialias=use_antialiasing)
+
 
 def resize_to_batch_tensor(tensor_list, max_size, interp_mode=TT.InterpolationMode.BICUBIC):
     # Step 1: Check if all shapes are equivalent

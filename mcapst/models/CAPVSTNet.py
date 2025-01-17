@@ -18,7 +18,6 @@ class CAPVSTNet(object):
             :param train_mode: training mode flag - passed to cWCT constructor to halt training if torch.linalg.cholesky fails
             * NOTE: GPT-generated docstring
         """
-        #super().__init__()
         self.use_double = use_double
         self.train_mode = train_mode # keeping this just in case I may need it for more error checking elsewhere
         self.max_size = max_size
@@ -26,8 +25,6 @@ class CAPVSTNet(object):
 
 
     def transfer(self, cont_feat: FeatureContainer, style_feat: FeatureContainer):
-                 #cmask: Union[torch.Tensor, None] = None, smask: Union[List[torch.Tensor], None] = None,
-                 #alpha_s: Union[float, Iterable[float], None] = None, alpha_c: Union[float, None] = None):
         """ Transfer style from styl_feat to cont_feat, optionally using segmentation masks.
             :param cont_feat: wrapped content features [B, N, H_c, W_c] - in practice, typically B=1
             :param styl_feat: wrapped style features [B, N, H_s, W_s]
@@ -44,15 +41,11 @@ class CAPVSTNet(object):
             # may have to do style interpolation then join the style masks together by their intersection
             # will probably be making a new function for that, but I need to make the functions that I have as atomic as possible to just call them in this new function
         # TODO: may create a small factory function that does staging here later - no need for using the arguments this way
-        if cont_feat.alpha != 0.0 and style_feat.alpha is not None or style_feat.batch_size != 1:
-            # ~ currently needed for blending - want to abstract this away to a new function elsewhere later
-            #print("running interpolation style transfer")
+        if cont_feat.alpha[0] != 0.0 or style_feat.batch_size != 1:
             return self._interpolation(feature_dict)
         elif cont_feat.mask is not None and style_feat.mask is not None:
-            #print("running segmentation-guided style transfer")
             return self._transfer_seg(feature_dict)
         else:
-            #print("running unweighted single-style transfer")
             return self._transfer(feature_dict)
 
 
@@ -145,7 +138,6 @@ class CAPVSTNet(object):
         conversion_dtype = torch.float32 if not self.use_double else torch.float64
         # Initialize mixed Cholesky factors and means (interpolate between all style inputs)
         alpha_s_tensor = torch.tensor(alpha_s, device=style_feat_batch.device, dtype=conversion_dtype).view(-1, 1)
-        #print("initial values of alpha_s_tensor: ", alpha_s_tensor)
         mix_Ls = torch.zeros((B_c, N, N), device=style_feat_batch.device, dtype=conversion_dtype)    # [B_c, N, N]
         mix_s_mean = torch.zeros((B_c, N), device=style_feat_batch.device, dtype=conversion_dtype)   # [B_c, N]
         # Get style feature covariances and decompositions (mean, covariance matrix, and Cholesky factor)
@@ -168,14 +160,16 @@ class CAPVSTNet(object):
         """
         content_feat = feature_dict["content"].feat
         B_c, N, _ = content_feat.shape  # Unpack content tensor shape [B_c, N, H_c*W_c]
+        alpha_c = feature_dict["content"].alpha[0]
+        alpha_s = feature_dict["style"].alpha.weights
         # get Cholesky decomposition for content features
         c_mean, _, Lc = self.cwct.get_feature_covariance_and_decomp(content_feat, invert=False, update_mean=False)  # [B_c, N] and [B_c, N, N]
         Lc_inv = torch.inverse(Lc)
         # get whitened content features (not using the whitening function since I didn't wanna pass all variables each time)
         whiten_c = torch.bmm(Lc_inv, content_feat) # [B_c, N, H_c*W_c]
         # First interpolate between style_A, style_B, style_C, ...
-        mix_Ls, mix_s_mean = self._interpolate_style(feature_dict["style"].feat, feature_dict["style"].alpha, tuple(c_mean.shape[:2])) # [B_c, N, N] and [B_c, N]
-        alpha_c = feature_dict["content"].alpha
+        #mix_Ls, mix_s_mean = self._interpolate_style(feature_dict["style"].feat, alpha_s, tuple(c_mean.shape[:2])) # [B_c, N, N] and [B_c, N]
+        mix_Ls, mix_s_mean = self._interpolate_style(feature_dict["style"].feat, alpha_s, (B_c, N)) # [B_c, N, N] and [B_c, N]
         # Second interpolate between content and style_mix
         if alpha_c != 0.0:
             mix_Ls = mix_Ls*(1 - alpha_c) + Lc*alpha_c

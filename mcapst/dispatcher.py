@@ -4,7 +4,7 @@ import torch
 from threading import Semaphore, Lock
 from queue import Queue
 
-from data.managers import ImageStyleAugmentationManager
+from data.managers import BaseImageStylizer
 
 
 
@@ -21,14 +21,14 @@ class StyleTransferDispatcher:
         """
         self.style_managers = {"art": [], "photo": []}
         num_copies_list = [num_copies, num_copies] if isinstance(num_copies, int) else list(num_copies)
-        total_copies = sum(num_copies_list)
+        self.total_copies = sum(num_copies_list)
         self.style_transfer_semaphore = {key: Semaphore(num_copies_list[idx]) for idx, key in enumerate(self.style_managers.keys())}
         self.style_manager_lock = Lock()
         self.use_cuda_streams = use_cuda_streams
         # preallocate style managers
         self._initialize_style_managers(transfer_type, ckpt_dir, max_size, num_copies_list)
         # optionally create CUDA streams for each manager if true
-        self.cuda_streams = [torch.cuda.Stream() for _ in range(total_copies)] if self.use_cuda_streams else None
+        self.cuda_streams = [torch.cuda.Stream() for _ in range(self.total_copies)] if self.use_cuda_streams else None
         if self.use_cuda_streams:
             torch.cuda.synchronize()
         # track available managers using a dictionary with two separate queues
@@ -46,7 +46,7 @@ class StyleTransferDispatcher:
                 ckpt_path = os.path.join(ckpt_dir, f"{mode}_image.pt")
                 # FIXME: definitely don't want to save results here - use temporary hard-coded absolute path later
                 st_output_dir = os.path.join(ckpt_dir, "style_transfer")
-                manager = ImageStyleAugmentationManager(mode=mode, ckpt=ckpt_path, max_size=max_size,
+                manager = BaseImageStylizer(mode=mode, ckpt=ckpt_path, max_size=max_size,
                                                         save_results=False, output_dir=st_output_dir)
                 self.style_managers[mode].append(manager)
 
@@ -108,7 +108,7 @@ class StyleTransferDispatcher:
 
 
     def __repr__(self):
-        return f"StyleTransferDispatcher(managers={len(self.style_managers['art']) + len(self.style_managers['photo'])}, use_cuda_streams={self.use_cuda_streams})"
+        return f"StyleTransferDispatcher(managers={self.total_copies}, use_cuda_streams={self.use_cuda_streams})"
 
 
 # ? NOTE: to use this with the non-policy model pipeline, I should probably make a separate method to call in augment_batch to not use CUDA streams on top of those used above
@@ -118,7 +118,7 @@ class StyleTransferDispatcher:
 Key Features of StyleTransferDispatcher
 Manager Pooling:
 
-Multiple ImageStyleAugmentationManager instances are preallocated and stored in a pool.
+Multiple BaseImageStylizer instances are preallocated and stored in a pool.
 The Semaphore ensures that only a limited number of managers are in use at any given time.
 Asynchronous Execution with CUDA Streams:
 

@@ -17,16 +17,13 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 parser = argparse.ArgumentParser()
 parser.add_argument('--mode', type=str, default='photorealistic')
 parser.add_argument('--ckpoint', type=str, default='checkpoints/photo_video.pt')
-
 # data
 parser.add_argument('--video', type=str, default='data/content/03.avi')
 parser.add_argument('--style', type=str, default='data/style/03.jpeg')
-
 parser.add_argument('--out_dir', type=str, default="output")
 parser.add_argument('--max_size', type=int, default=1280)
 parser.add_argument('--alpha_c', type=float, default=None)
 parser.add_argument('--fps', type=int, default=10)
-
 # segmentation
 parser.add_argument('--auto_seg', action='store_true', default=False)
 parser.add_argument('--save_seg_label', action='store_true', default=True)
@@ -34,7 +31,6 @@ parser.add_argument('--save_seg_color', action='store_true', default=True)
 parser.add_argument('--label_mapping', type=str, default='models/segmentation/ade20k_semantic_rel.npy')
 parser.add_argument('--palette', type=str, default='models/segmentation/ade20k_palette.npy')
 parser.add_argument('--min_ratio', type=float, default=0.02)
-
 args = parser.parse_args()
 
 if not os.path.exists(args.out_dir):
@@ -44,14 +40,13 @@ out_dir = args.out_dir
 
 
 # Reversible Network
-from models.RevResNet import RevResNet
+from .models.RevResNet import RevResNet
 if args.mode.lower() == "photorealistic":
     RevNetwork = RevResNet(nBlocks=[10, 10, 10], nStrides=[1, 2, 2], nChannels=[16, 64, 256], in_channel=3, mult=4, hidden_dim=16, sp_steps=2)
 elif args.mode.lower() == "artistic":
     RevNetwork = RevResNet(nBlocks=[10, 10, 10], nStrides=[1, 2, 2], nChannels=[16, 64, 256], in_channel=3, mult=4, hidden_dim=64, sp_steps=1)
 else:
     raise NotImplementedError()
-
 state_dict = torch.load(args.ckpoint)
 RevNetwork.load_state_dict(state_dict['state_dict'])
 RevNetwork = RevNetwork.to(device)
@@ -59,9 +54,8 @@ RevNetwork.eval()
 
 
 # Transfer module
-from models.cWCT import cWCT
+from .models.cWCT import cWCT
 cwct = cWCT()
-
 
 
 # video data
@@ -78,7 +72,6 @@ else:
         frame_list.append(Image.fromarray(frame[..., ::-1]))
 
 
-
 # video width/height
 video_height, video_width = np.array(frame_list[0]).shape[:2]
 if max(video_width, video_height) > args.max_size:
@@ -90,7 +83,6 @@ transform_video_size = transforms.Resize((video_height, video_width), interpolat
 video_file = os.path.basename(args.video)
 style_file = os.path.basename(args.style)
 save_video_file = "%s_%s.mp4" % (video_file.split(".")[0], style_file.split(".")[0])
-
 fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
 path = os.path.join(out_dir, save_video_file)
 save_video = cv2.VideoWriter(path, fourcc, args.fps, (video_width, video_height))
@@ -121,24 +113,20 @@ if args.auto_seg:
     config = 'models/segmentation/SegFormer/local_configs/segformer/B5/segformer.b5.640x640.ade.160k.py'
     checkpoint = 'models/segmentation/SegFormer/segformer.b5.640x640.ade.160k.pth'
     seg_model = init_segmentor(config, checkpoint, device=device)
-
     # Inference
     style_BGR = np.array(style, dtype=np.uint8)[..., ::-1]
     style_seg = inference_segmentor(seg_model, style_BGR)[0]
     # -----------------------------
-
     # Post-processing segmentation results
     from models.segmentation.SegReMapping import SegReMapping
     label_remapping = SegReMapping(args.label_mapping, min_ratio=args.min_ratio)
     style_seg = label_remapping.self_remapping(style_seg)
     style_seg = np.asarray(style_seg).astype(np.uint8)
-
     # Save the class label of segmentation results
     if args.save_seg_label:
         if not os.path.exists(os.path.join(out_dir, "segmentation")):
             os.makedirs(os.path.join(out_dir, "segmentation"))
         Image.fromarray(style_seg).save(os.path.join(out_dir, "segmentation", 'style_seg_label.png'))
-
     # Save the Visualization of segmentation results
     if args.save_seg_color:
         palette = np.load(args.palette)
@@ -146,9 +134,7 @@ if args.auto_seg:
         for label, color in enumerate(palette):
             style_seg_color[style_seg == label, :] = color  # RGB
         Image.fromarray(style_seg_color).save(os.path.join(out_dir, "segmentation", 'style_seg_color.png'))
-
     style_seg = style_seg[None, ...]
-
 else:
     style_seg = None
 
@@ -159,16 +145,12 @@ style = transforms.ToTensor()(style).unsqueeze(0).to(device)
 # Video Process
 for i in tqdm(range(len(frame_list)), desc="Video Processing"):
     content = img_resize(frame_list[i], args.max_size, down_scale=RevNetwork.down_scale)
-
     if args.auto_seg:
         content_BGR = np.array(content, dtype=np.uint8)[..., ::-1]
         content_seg = inference_segmentor(seg_model, content_BGR)[0]  # shape:[H, W], value from 0 to 149 indicating the class of pixel
-
         content_seg = label_remapping.self_remapping(content_seg)  # eliminate noisy class
         content_seg = label_remapping.cross_remapping(content_seg, style_seg)
-
         content_seg = np.asarray(content_seg).astype(np.uint8)
-
         # Save the class label of segmentation results
         if args.save_seg_label and args.auto_seg:
             save_video_label.write(cv2.resize(content_seg, (video_width, video_height), interpolation=cv2.INTER_NEAREST))
@@ -180,20 +162,16 @@ for i in tqdm(range(len(frame_list)), desc="Video Processing"):
             # Image.fromarray(content_seg_color).save(os.path.join(out_dir, "segmentation", 'content_seg_color.png'))
             content_seg_color = cv2.resize(content_seg_color, (video_width, video_height), interpolation=cv2.INTER_NEAREST)
             save_video_color.write(content_seg_color[..., ::-1])
-
         content_seg = content_seg[None, ...]  # shape: [B, H, W]
     else:
         content_seg = None
-
     content = transforms.ToTensor()(content).unsqueeze(0).to(device)
-
 
     # Stylization
     with torch.no_grad():
         # Forward inference
         z_c = RevNetwork(content, forward=True)
         z_s = RevNetwork(style, forward=True)
-
         # Transfer
         if args.alpha_c is not None and content_seg is None and style_seg is None:
             # interpolation between content and style, mask is not supported
@@ -201,16 +179,13 @@ for i in tqdm(range(len(frame_list)), desc="Video Processing"):
             z_cs = cwct.interpolation(z_c, styl_feat_list=[z_s], alpha_s_list=[1.0], alpha_c=args.alpha_c)
         else:
             z_cs = cwct.transfer(z_c, z_s, content_seg, style_seg)
-
         # Backward inference
         stylized = RevNetwork(z_cs, forward=False)
-
 
     # Save
     stylized = transform_video_size(stylized)
     grid = utils.make_grid(stylized.data, nrow=1, padding=0)
     ndarr = grid.mul(255).clamp(0, 255).byte().permute(1, 2, 0).cpu().numpy()
-
     save_video.write(ndarr[..., ::-1])
 
 

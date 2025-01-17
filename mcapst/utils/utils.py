@@ -174,3 +174,25 @@ def is_given_filetype(paths, file_type: Literal["image", "encoding"]):
     paths = ensure_file_list_format(paths)
     if all(os.path.splitext(p.lower())[1] in file_extensions[file_type] for p in paths):
         return True
+
+
+# originally written and applied within src.dataset.transforms.AugmentationFunctionalWrapper
+def cpu_wrapper(compute_on_cpu):
+    def decorator(func):
+        def wrapper(tensor, *args, **kwargs):
+            if compute_on_cpu:
+                try:
+                    device_init = tensor.device
+                    # ? NOTE: doing this because for some reason, a torvision.tv_tensors.Mask type gets converted to a torch.Tensor type when moved to the CPU
+                    # apparently this works but not tensor.cpu(), so I'm guessing only the .to method is defined for tv_tensors
+                    tensor = tensor.to(device="cpu")
+                except AttributeError:
+                    raise ValueError("The first argument to the function must be a tensor!")
+                tensor = func(tensor, *args, **kwargs)
+                # move back to original device
+                return tensor.to(device=device_init)
+            else:
+                # if compute_on_cpu = False, just call the function directly
+                return func(tensor, *args, **kwargs)
+        return wrapper
+    return decorator

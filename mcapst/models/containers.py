@@ -1,31 +1,83 @@
+from typing import Dict, List, Literal, Union, Iterable, Optional
+import functools
+from dataclasses import dataclass
+import numpy as np
 import torch
 import torchvision.transforms.v2 as TT
-import functools
-from typing import Dict, List, Literal, Union, Iterable, Callable, Tuple, Any
+# local imports
 from ..utils.img_utils import iterable_to_tensor
 
 
 
-# originally written and applied within src.dataset.transforms.AugmentationFunctionalWrapper
-def cpu_wrapper(compute_on_cpu):
-    def decorator(func):
-        def wrapper(tensor, *args, **kwargs):
-            if compute_on_cpu:
-                try:
-                    device_init = tensor.device
-                    # ? NOTE: doing this because for some reason, a torvision.tv_tensors.Mask type gets converted to a torch.Tensor type when moved to the CPU
-                    # apparently this works but not tensor.cpu(), so I'm guessing only the .to method is defined for tv_tensors
-                    tensor = tensor.to(device="cpu")
-                except AttributeError:
-                    raise ValueError("The first argument to the function must be a tensor!")
-                tensor = func(tensor, *args, **kwargs)
-                # move back to original device
-                return tensor.to(device=device_init)
-            else:
-                # if compute_on_cpu = False, just call the function directly
-                return func(tensor, *args, **kwargs)
-        return wrapper
-    return decorator
+
+
+
+@dataclass
+class StyleWeights:
+    """ Encapsulates weights for either content or style - objects of this type will be managed by StyleWeightContainer """
+    weights: Optional[List[float]] = None
+    weight_type: Literal["content", "style"] = "style"
+    num_items: int = 1
+
+    def __post_init__(self):
+        if self.weights is None:
+            self.weights = self._default_weights()
+        self._validate_weights()
+        self._normalize_weights()
+
+    def _default_weights(self) -> List[float]:
+        # NOTE: defaults to [1] for content weights when it should be [0]
+        if self.weight_type == "content":
+            return [0]
+        return [round(1 / self.num_items, 4)] * self.num_items
+
+    #& TEMP: I'll probably be moving some of this upstream to the parsing logic to throw argparse.ArgumentTypeError
+        #& for non-numeric types, so this may be temporary
+    def _validate_weights(self):
+        # ensure the weights are a valid iterable type
+        if not isinstance(self.weights, (list, tuple, np.ndarray, torch.Tensor)):
+            self.weights = [self.weights]
+        elif isinstance(self.weights, (np.ndarray, torch.Tensor)):
+            self.weights = self.weights.tolist()
+        # ensure self.num_items matches the number of style weights
+        if len(self.weights) != self.num_items:
+            self.num_items = len(self.weights)
+        # ensure weights are valid numeric types in [0,1]
+        for w in self.weights:
+            print(f"type of {w}: {type(w)}")
+        if not all(isinstance(w, (int, float)) and 0 <= w <= 1 for w in self.weights):
+            raise ValueError(f"All weights must be floats in the range [0, 1]; got {self.weights} with types {[type(w) for w in self.weights]}")
+
+    def _normalize_weights(self):
+        """ normalize the weights to sum to 1 """
+        total: float = sum(self.weights) # assumes that self.weights is an iterable at this point
+        TOL: float = 1e-6 # using a small tolerance to avoid floating point errors in comparing total to 0
+        if total > TOL and self.weight_type == "style":
+            # limiting precision for reproducibility
+            self.weights: List[float] = [round(w/total, 4) for w in self.weights]
+
+    #& I'm considering looking into the pytorch dunder method `__torch_function__` for this to override all calls by pytorch functions
+    # https://pytorch.org/docs/stable/notes/extending.html#extending-torch-python-api
+    # https://github.com/docarray/notes/blob/main/blog/02-this-weeks-in-docarray-01.md
+    def to_tensor(self, device: torch.device) -> torch.Tensor:
+        return torch.tensor(self.weights, device=device, dtype=torch.float32)
+
+    def __getitem__(self, idx):
+        return self.weights[idx]
+
+    def __iter__(self):
+        return iter(self.weights)
+
+    def __next__(self):
+        return next(self.weights)
+
+    def __len__(self):
+        return len(self.weights)
+
+    def __repr__(self):
+        return f"StyleWeight(weights={self.weights}, weight_type={self.weight_type}, num_items={self.num_items})"
+
+
 
 
 
@@ -48,6 +100,11 @@ def preprocess_and_postprocess(func):
     return wrapper
 
 
+
+# TODO: transition this to a hybrid builder/factory design pattern for the FeatureContainer class to keep the same classes for masked style transfer
+    #& I'm considering looking into the pytorch dunder method `__torch_function__` for this to override all calls by pytorch functions
+    # https://pytorch.org/docs/stable/notes/extending.html#extending-torch-python-api
+    # https://github.com/docarray/notes/blob/main/blog/02-this-weeks-in-docarray-01.md
 class FeatureContainer(object):
     """encapsulation of each set of feature tensors with associated attributes, optional masks, optional scalar weights, etc"""
     def __init__(
@@ -55,7 +112,7 @@ class FeatureContainer(object):
         features: Union[torch.Tensor, Iterable[torch.Tensor]],
         # TODO: remove target tensor later to cut down on the unnecessary storage
         feature_type: Literal["content", "style", "target"],
-        alpha: Union[float, List[float], None] = None,
+        alpha: StyleWeights, #Union[float, List[float], None] = None,
         mask: Union[torch.Tensor, Iterable[torch.Tensor], None] = None,
         use_double=True,
         max_size=1280,
@@ -67,7 +124,8 @@ class FeatureContainer(object):
         self.feat_shape_init: torch.Size = self.feat.shape
         self.feat_dtype_init: torch.dtype = self.feat.dtype
         # ? NOTE: should maybe move this to the FeatureFusionModule; I was thinking of doing the same for alpha_c, but I feel like I probably shouldn't
-        self.set_alpha_value(alpha)
+        #self.set_alpha_value(alpha)
+        self.alpha: StyleWeights = alpha
         # ? NOTE: may end up moving this as well to enfore mask consistency with the feature tensors
         if mask is not None:
             mask = iterable_to_tensor(mask, max_size, is_mask=True)
@@ -108,24 +166,6 @@ class FeatureContainer(object):
         if self.mask.device != self.feat.device:
             self.mask = self.mask.to(self.feat.device)
 
-    def set_alpha_value(self, alpha):
-        # ? NOTE: this will likely vary by the style transfer approach taken (regular, interpolated styles, segmentation guided, etc)
-        if self.feat_type == "style":
-            if (B := self.feat_shape_init[0]) > 1:
-                if alpha is None:
-                    alpha = [1 / B] * B
-                assert (len(alpha) == B), "The number of alpha values (if provided) must match the number of style feature tensors!"
-            if alpha is not None and not isinstance(alpha, (list, tuple, torch.Tensor)):
-                alpha = [alpha]
-        # ? NOTE: not necessary for anything except the interpolation methods
-        elif self.feat_type == "content":
-            # FIXME: kinda want to revisit this logic elsewhere since the only place it's used just checks (if alpha != 0.0)
-            if alpha is None:
-                alpha = 0.0
-            assert (0.0 <= alpha < 1.0), "Content alpha must be in the half open range [0, 1), excluding 1 which returns the original image"
-        # alpha remains None if neither conditional block executes
-        self.alpha: float = alpha
-
     def get_mask_indices(self, label):
         # ? NOTE: pretty much wrote this while still assuming that we're iterating over labels, but passing the whole batch this time
         # ~ could always try the FeatureContainerIterable again later and use this with torch.vmap
@@ -145,14 +185,15 @@ class FeatureContainer(object):
             f"feat_type='{self.feat_type}', "
             f"feat_shape={self.feat_shape_init}, "
             f"feat_dtype={self.feat_dtype_init}, "
-            # f"feat_value_range={float(self.feat.min()), float(self.feat.max())}, "
             f"alpha={self.alpha}, "
             f"mask_present={self.mask is not None})"
         )
 
 
+# ~ IDEA: consider multiple inheritance with Enum type for feature tensors
 class MultiFeatureContainer(FeatureContainer):
     def __init__(self, feature_list: list, alpha_list: list):
+        raise NotImplementedError
         super().__init__(features=None)
         self.feature_list = feature_list
         self.alpha_list = alpha_list
