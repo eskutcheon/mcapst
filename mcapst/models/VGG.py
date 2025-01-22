@@ -5,7 +5,7 @@ import torch
 def calc_mean_std(feat, eps=1e-5):
     # eps is a small value added to the variance to avoid divide-by-zero.
     size = feat.size()
-    assert (len(size) == 4)
+    assert len(size) == 4, f"Expected 4D input, got {len(size)}D input"
     N, C = size[:2]
     feat_var = feat.view(N, C, -1).var(dim=2) + eps
     feat_std = feat_var.sqrt().view(N, C, 1, 1)
@@ -83,12 +83,10 @@ class VGG19(nn.Module):
         self.enc_3 = nn.Sequential(*vgg_layers[11:18])  # relu2_1 -> relu3_1
         self.enc_4 = nn.Sequential(*vgg_layers[18:31])  # relu3_1 -> relu4_1
         self.enc_5 = nn.Sequential(*vgg_layers[31:45])  # relu4_1 -> relu5_1
-
         # fix the encoder
         for name in ['enc_1', 'enc_2', 'enc_3', 'enc_4', 'enc_5']:
             for param in getattr(self, name).parameters():
                 param.requires_grad = False
-
         self.mse_loss = nn.MSELoss()
 
     # extract relu1_1 - relu(n_layer)_1 from input image
@@ -106,13 +104,13 @@ class VGG19(nn.Module):
         return x
 
     def calc_content_loss(self, input, target):
-        assert (input.size() == target.size())
-        assert (target.requires_grad is False)
+        assert input.size() == target.size(), f"input size {input.size()} not equal to target size {target.size()}"
+        assert not target.requires_grad, "target should not require gradients"
         return self.mse_loss(input, target)
 
     def calc_style_loss(self, input, target):
         # assert (input.size() == target.size())
-        assert (target.requires_grad is False)
+        assert not target.requires_grad, "target should not require gradients"
         input_mean, input_std = calc_mean_std(input)
         target_mean, target_std = calc_mean_std(target)
         return self.mse_loss(input_mean, target_mean) + self.mse_loss(input_std, target_std)

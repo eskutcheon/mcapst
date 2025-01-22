@@ -45,7 +45,7 @@ def test_img_inference(transfer_type="photo"):
     style_filenames = sorted([p for p in os.listdir(style_img_dir) if os.path.isfile(os.path.join(style_img_dir, p))])
     # create style transfer manager with basic settings
     manager = BaseImageStylizer(transfer_type, ckpt_path, 960)
-    for idx, style_filename in enumerate(style_filenames):
+    for idx, style_filename in enumerate(style_filenames[:3]):
         style_img_path = os.path.join(style_img_dir, style_filename)
         if not os.path.isfile(style_img_path):
             print(f"file '{style_img_path}' not found; skipping...")
@@ -99,14 +99,15 @@ def test_multistyle_img_inference(transfer_type="photo"):
 def test_video_inference(transfer_type="photo"):
     output_dir = os.path.join(project_root, "results")
     os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, f"{transfer_type}-stylized_video.mp4")
     ckpt_path = os.path.join(ckpt_dir, f"{transfer_type}_video.pt")
     content_img_paths = [os.path.join(content_img_dir, p) for p in os.listdir(content_img_dir) if p.endswith(".avi")]
     content_img_paths = [content_img_paths[-1]]
     alpha_tests = [None] if transfer_type == "photo" else [0.1]
     style_filenames = sorted([p for p in os.listdir(style_img_dir) if os.path.isfile(os.path.join(style_img_dir, p))])
-    style_filenames = [style_filenames[3]] #, style_filenames[-1]]
+    style_filenames = [style_filenames[2]]
     # create style transfer manager with basic settings
-    manager = BaseVideoStylizer(transfer_type, ckpt_path, 720, fps=10)
+    manager = BaseVideoStylizer(transfer_type, ckpt_path, 720, fps=20)
     for idx, style_filename in enumerate(style_filenames):
         style_img_path = os.path.join(style_img_dir, style_filename)
         for content_path in content_img_paths:
@@ -115,7 +116,7 @@ def test_video_inference(transfer_type="photo"):
             for idx, alpha in enumerate(alpha_tests):
                 alpha_name = 0.0 if alpha is None else alpha
                 style_alpha = 1
-                pastiche = manager.transform(content_path, style_img_path, alpha_c=alpha, alpha_s=style_alpha)
+                pastiche = manager.transform(content_path, style_img_path, alpha_c=alpha, alpha_s=style_alpha, output_path=output_path)
                 time.sleep(1.0)
 
 
@@ -123,4 +124,4 @@ def test_video_inference(transfer_type="photo"):
 
 #test_img_inference("photo")
 #test_multistyle_img_inference("photo")
-test_video_inference("art")
+test_video_inference("photo")

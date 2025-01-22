@@ -43,8 +43,8 @@ class StyleWeights:
         if len(self.weights) != self.num_items:
             self.num_items = len(self.weights)
         # ensure weights are valid numeric types in [0,1]
-        for w in self.weights:
-            print(f"type of {w}: {type(w)}")
+        # for w in self.weights:
+        #     print(f"type of {w}: {type(w)}")
         if not all(isinstance(w, (int, float)) and 0 <= w <= 1 for w in self.weights):
             raise ValueError(f"All weights must be floats in the range [0, 1]; got {self.weights} with types {[type(w) for w in self.weights]}")
 

@@ -6,7 +6,15 @@ from typing import Union, Iterable, Callable, Tuple
 
 
 class cWCT(torch.jit.ScriptModule):
-    def __init__(self, train_mode:bool=False, eps:float=2e-5, verbose:bool=False, reg_method: str = "ridge", temperature: float = 1.0, alpha: float = 0.01):
+    def __init__(
+        self,
+        train_mode:bool = False,
+        eps:float = 2e-5,
+        verbose:bool = False,
+        reg_method: str = "ridge",
+        temperature: float = 1.0,
+        alpha: float = 0.01
+    ):
         super().__init__()
         self.train_mode = train_mode
         self.eps = eps
@@ -103,7 +111,10 @@ class cWCT(torch.jit.ScriptModule):
 
     @torch.jit.script_method
     def get_feature_covariance_and_decomp(
-        self, X: torch.Tensor, invert:bool=False, update_mean:bool=False
+        self,
+        X: torch.Tensor,
+        invert:bool=False,
+        update_mean:bool=False
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """ get covariance matrix as part of the operations for both whitening and coloring transforms
             :param X: Input features [B, N, H*W]
