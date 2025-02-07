@@ -11,7 +11,6 @@ from ..utils.img_utils import iterable_to_tensor
 
 
 
-
 @dataclass
 class StyleWeights:
     """ Encapsulates weights for either content or style - objects of this type will be managed by StyleWeightContainer """
@@ -26,7 +25,6 @@ class StyleWeights:
         self._normalize_weights()
 
     def _default_weights(self) -> List[float]:
-        # NOTE: defaults to [1] for content weights when it should be [0]
         if self.weight_type == "content":
             return [0]
         return [round(1 / self.num_items, 4)] * self.num_items
@@ -41,6 +39,8 @@ class StyleWeights:
             self.weights = self.weights.tolist()
         # ensure self.num_items matches the number of style weights
         if len(self.weights) != self.num_items:
+            print(f"WARNING: got num_items = {self.num_items}, but len(weights) = {len(self.weights)}; using default weights instead...")
+            self.weights = self._default_weights()
             self.num_items = len(self.weights)
         # ensure weights are valid numeric types in [0,1]
         # for w in self.weights:

@@ -10,9 +10,13 @@ from utils.MattingLaplacian import compute_laplacian
 
 import numpy as np
 
+
+#^###################################################################################################
+#^ OLD CAP-VSTNet CODE - MUCH OF THIS WILL BE REMOVED
+#^###################################################################################################
+
 Image.MAX_IMAGE_PIXELS = None  # Disable DecompressionBombError
 ImageFile.LOAD_TRUNCATED_IMAGES = True  # Disable OSError: image file is truncated
-
 
 
 IMG_EXTENSIONS = [
@@ -116,43 +120,6 @@ def get_data_loader_folder(input_folder, batch_size, new_size=288, height=256, w
     return loader
 
 
-
 #^###################################################################################################
 #^ END OLD CAP-VSTNet CODE - BEGIN NEW CODE
 #^###################################################################################################
-
-
-class DataManager:
-    def __init__(self, config):
-        self.content_loader = self._get_loader(config["train_content"])
-        self.style_loader = self._get_loader(config["train_style"])
-        self.content_iter = iter(self.content_loader)
-        self.style_iter = iter(self.style_loader)
-
-    def _get_loader(self, data_path):
-        return get_data_loader_folder(data_path, batch_size=8, crop_size=256)
-
-    def get_next_batches(self):
-        try:
-            content_batch = next(self.content_iter)
-        except StopIteration:
-            self.content_iter = iter(self.content_loader)
-            content_batch = next(self.content_iter)
-        try:
-            style_batch = next(self.style_iter)
-        except StopIteration:
-            self.style_iter = iter(self.style_loader)
-            style_batch = next(self.style_iter)
-        return content_batch["img"], style_batch["img"]
-
-    def compute_laplacian_matrices(self, content_batch):
-        """ Computes sparse Laplacian matrices for the content images """
-        laplacian_list = []
-        for content in content_batch:
-            M = content["laplacian_m"]
-            indices = torch.tensor([M.row, M.col], dtype=torch.long, device=self.device)
-            values = torch.tensor(M.data, dtype=torch.float32, device=self.device)
-            shape = torch.Size(M.shape)
-            laplacian = torch.sparse_coo_tensor(indices, values, shape, device=self.device)
-            laplacian_list.append(laplacian)
-        return laplacian_list

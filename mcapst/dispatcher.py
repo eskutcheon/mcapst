@@ -5,7 +5,7 @@ from threading import Semaphore, Lock
 from queue import Queue
 
 from data.managers import BaseImageStylizer
-
+# TODO: need to implement this for the remaining stylizer subclasses, including for video
 
 
 class StyleTransferDispatcher:
