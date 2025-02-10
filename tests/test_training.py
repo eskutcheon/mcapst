@@ -1,8 +1,6 @@
 import os
 import sys
 import yaml
-import torch
-from torch.utils.data import DataLoader
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 # from mcapst.data.datasets import HFImageDataset
 from mcapst.pipelines.train import ImageTrainer
@@ -13,7 +11,7 @@ def main():
     config = {
         "base_name": "test_run",
         "mode": "photorealistic",
-        "vgg_ckpoint": "checkpoints/vgg_normalised.pth",
+        "vgg_ckpt": "checkpoints/vgg_normalised.pth",
         "train_content": "data/train_content",
         "train_style": "data/train_style",
         "batch_size": 2,
@@ -24,7 +22,7 @@ def main():
         "lr": 1e-4,
         "lr_decay": 5e-5,
         "style_weight": 1.0,
-        "content_weight": 0.0,
+        "content_weight": 1.0,
         "lap_weight": 1,
         "rec_weight": 10,
         "temporal_weight": 0,

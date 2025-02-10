@@ -19,7 +19,7 @@ class ConfigManager:
             "mode": "photorealistic",
             "modality": "image",
             "ckpt_path": os.path.join("checkpoints", datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")),
-            "vgg_ckpoint": "checkpoints/vgg_normalised.pth",
+            "vgg_ckpt": "checkpoints/vgg_normalised.pth",
             "train_content": "data/train_content",
             "train_style": "data/train_style",
             "batch_size": 2,
@@ -59,7 +59,7 @@ class ConfigManager:
         parser.add_argument('--mode', type=str, choices=['photorealistic', 'artistic'], help='Mode of training')
         parser.add_argument('--modality', type=str, choices=['image', 'video'], help='Modality of training data')
         parser.add_argument('--ckpt_path', type=str, help='Path to save checkpoints')
-        parser.add_argument('--vgg_ckpoint', type=str, help='Path to VGG checkpoint')
+        parser.add_argument('--vgg_ckpt', type=str, help='Path to VGG checkpoint')
         parser.add_argument('--train_content', type=str, help='Path to content training dataset')
         parser.add_argument('--train_style', type=str, help='Path to style training dataset')
         parser.add_argument('--batch_size', type=int, help='Batch size for training')

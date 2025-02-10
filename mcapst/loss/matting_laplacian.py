@@ -4,7 +4,6 @@
 from typing import Dict, Union, Literal
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 def compare_tensor_with_benchmark(target, filename, exact = True, rtol=1e-3, atol=1e-5, names = ["src", "tgt"]):
@@ -34,12 +33,12 @@ def compare_tensor_with_benchmark(target, filename, exact = True, rtol=1e-3, ato
 
 #^ MattingLaplacian code formerly in mcapst/utils/MattingLaplacian.py
 class MattingLaplacianLoss(nn.Module):
-    def __init__(self, eps=1e-7, win_rad=1, objective: Literal["mse"] = "mse"):
+    def __init__(self, eps=1e-7, win_rad=1, objective: Literal["mse", "sparse", "dense"] = "mse"):
         super(MattingLaplacianLoss, self).__init__()
         self.eps = eps
         self.win_radius = win_rad
         self.win_size = (win_rad * 2 + 1) ** 2
-        if objective not in ["mse"]:
+        if objective not in ["mse", "sparse", "dense"]:
             raise ValueError(f"Unsupported objective: {objective}")
         self.objective = objective
 
@@ -193,25 +192,40 @@ class MattingLaplacianLoss(nn.Module):
         return self.construct_laplacian_sequential(laplacian, indices, img.shape)
 
 
-    def _apply_laplacian(self, pastiche, laplacian):
-        return torch.sparse.mm(laplacian, pastiche.flatten(start_dim=2).T).T.reshape_as(pastiche)
-        #return torch.matmul(laplacian, pastiche.flatten(start_dim=2).T).T.reshape_as(pastiche)
-
 
     # NOTE: following two functions follow the cost function defined in "Fast Matting Using Large Kernel Matting Laplacian Matrices"
     ################################################################################################################################
     # TODO: if I end up keeping both implementations, I should just make this a single function with a decorator to switch between sparse and dense
-    def get_sparse_laplacian_loss(self, pastiche: torch.Tensor, laplacian: torch.sparse.Tensor, mask: torch.Tensor = None):
+    def sparse_quadratic_loss(self, pastiche: torch.Tensor, laplacian: torch.sparse.Tensor, mask: torch.Tensor = None):
         # Use sparse matrix multiplication (only works on CPU for now)
         B, C = pastiche.shape[:2]
         loss = 0
-        for c in range(C):
-            x = pastiche[:, c, :].reshape(B, -1)  # Shape (B, C, HW) -> (B, HW)
-            lap_x = torch.sparse.mm(laplacian, x.T).T  # Shape (B, HW)
-            loss += torch.sum(x * lap_x)  # Sum over all pixels
+        # WORKING BUT SLOWER:
+        ######################################################################################################
+        # for b in range(B):  # Iterate over batches
+        #     lap_b = laplacian[b]  # Shape (HW, HW), Sparse
+        #     for c in range(C):  # Iterate over channels
+        #         x = pastiche[b, c].reshape(-1, 1)  # Shape (HW, 1), Dense
+        #         # Efficient sparse matrix multiplication: (HW, HW) x (HW, 1) -> (HW, 1)
+        #         lap_x = torch.sparse.mm(lap_b, x)  # Sparse multiplication
+        #         # Compute quadratic form x^T L x
+        #         loss += torch.dot(x.view(-1), lap_x.view(-1))  # Scalar value
+        ######################################################################################################
+        for b in range(B):  # Iterate over batch
+            lap_b = laplacian[b]  # Shape (HW, HW), Sparse
+            print("lap_b shape: ", lap_b.shape)
+            x = pastiche[b].reshape(C, -1, 1)  # Shape (C, HW, 1)
+            print("x shape: ", x.shape)
+            # Efficient sparse batch multiplication
+            lap_x = torch.stack([torch.sparse.mm(lap_b, x[c]) for c in range(C)])  # (C, HW, 1)
+            print("lap_x shape: ", lap_x.shape)
+            # Compute quadratic loss using einsum
+            loss += torch.einsum("c h, c h -> ", x.squeeze(-1), lap_x.squeeze(-1))  # scalar
+            print("loss shape: ", loss.shape)
         return loss / (B * C)
 
-    def get_dense_laplacian_loss(self, pastiche: torch.Tensor, laplacian: Union[torch.Tensor, torch.sparse.Tensor], mask: torch.Tensor = None):
+
+    def dense_laplacian_loss(self, pastiche: torch.Tensor, laplacian: Union[torch.Tensor, torch.sparse.Tensor], mask: torch.Tensor = None):
         # Dense matrix multiplication (better for back-propagation on CUDA)
         B, C = pastiche.shape[:2]
         laplacian_dense = laplacian.to_dense() if laplacian.is_sparse else laplacian
@@ -224,18 +238,45 @@ class MattingLaplacianLoss(nn.Module):
     ################################################################################################################################
 
 
+    # def get_laplacian_mse_loss(self, lap_pastiche: torch.Tensor, lap_content: torch.Tensor, mask: torch.Tensor = None):
+    #     if mask is not None:
+    #         # Ensure mask is broadcastable to (B, H, W)
+    #         if mask.dim() == 3:
+    #             mask = mask.unsqueeze(1)
+    #         # Remove channel dimension if present.
+    #         mask = mask.squeeze(1)
+    #         # Compute the mean squared error only over valid (masked) pixels.
+    #         diff_sq = (lap_pastiche - lap_content) ** 2
+    #         return (diff_sq * mask).sum() / (mask.sum() + self.eps)
+    #     return F.mse_loss(lap_pastiche, lap_content)
 
-    def get_laplacian_mse_loss(self, lap_pastiche: torch.Tensor, lap_content: torch.Tensor, mask: torch.Tensor = None):
-        if mask is not None:
-            # Ensure mask is broadcastable to (B, H, W)
-            if mask.dim() == 3:
-                mask = mask.unsqueeze(1)
-            # Remove channel dimension if present.
-            mask = mask.squeeze(1)
-            # Compute the mean squared error only over valid (masked) pixels.
-            diff_sq = (lap_pastiche - lap_content) ** 2
-            return (diff_sq * mask).sum() / (mask.sum() + self.eps)
-        return F.mse_loss(lap_pastiche, lap_content)
+    @staticmethod
+    def sparse_mse_loss(sparse_x: torch.sparse.Tensor, sparse_y: torch.sparse.Tensor):
+        """ Computes the Mean Squared Error (MSE) between two sparse tensors.
+            Args:
+                sparse_x (torch.sparse.Tensor): First sparse tensor.
+                sparse_y (torch.sparse.Tensor): Second sparse tensor.
+            Returns:
+                loss (torch.Tensor): Scalar loss value.
+        """
+        assert sparse_x.is_sparse and sparse_y.is_sparse, "Inputs must be sparse tensors"
+        # Ensure they have the same shape
+        assert sparse_x.shape == sparse_y.shape, f"Shape mismatch: {sparse_x.shape} vs {sparse_y.shape}"
+        # Ensure they have the same number of non-zero elements
+        assert sparse_x.indices().equal(sparse_y.indices()), "Sparse tensors must have the same sparsity pattern"
+        # Compute MSE only on non-zero elements
+        diff = sparse_x.values() - sparse_y.values()
+        return torch.mean(diff ** 2)
+
+
+
+    def postprocess(self, laplacian: torch.Tensor):
+        if isinstance(laplacian, list):
+            laplacian = torch.stack(laplacian)
+        if isinstance(laplacian, torch.sparse.Tensor):
+            # Convert to COO format for safe element-wise operations
+            laplacian = laplacian.coalesce()
+        return laplacian
 
 
     def forward(self, content_img, stylized_img, mask=None):
@@ -247,13 +288,13 @@ class MattingLaplacianLoss(nn.Module):
             Returns:
                 loss (Tensor): A scalar tensor representing the mean squared error between the laplacian responses.
         """
-        lap_content = self.compute_laplacian(content_img, mask=mask)
+        lap_content = self.postprocess(self.compute_laplacian(content_img, mask=mask))
         if self.objective == "mse":
-            lap_stylized = self.compute_laplacian(stylized_img, mask=mask)
-            return self.get_laplacian_mse_loss(lap_stylized, lap_content, mask=mask)
+            lap_stylized = self.postprocess(self.compute_laplacian(stylized_img, mask=mask))
+            return self.sparse_mse_loss(lap_stylized, lap_content)
         elif self.objective == "sparse":
-            return self.get_sparse_laplacian_loss(stylized_img, lap_content, mask=mask)
+            return self.sparse_quadratic_loss(stylized_img, lap_content, mask=mask)
         elif self.objective == "dense":
-            return self.get_dense_laplacian_loss(stylized_img, lap_content, mask=mask)
+            return self.dense_laplacian_loss(stylized_img, lap_content, mask=mask)
         else:
             raise ValueError(f"Unsupported objective: {self.objective}")

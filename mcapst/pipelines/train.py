@@ -7,6 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 # local imports
 #from mcapst.models.RevResNet import RevResNet
 from mcapst.models.CAPVSTNet import CAPVSTNet
+from mcapst.models.VGG import VGG19
 from mcapst.data.datasets import DataManager
 from mcapst.config.configure import ConfigManager
 #from mcapst.training.losses import LossManager
@@ -30,7 +31,8 @@ class Trainer:
         # TODO: replace with the use of a stylizer class in data.managers later
         self.transfer_module = CAPVSTNet(max_size=self.config["new_size"], train_mode=True)
         self.data_manager = DataManager(self.config)
-        self.loss_manager = LossManager(self.config)
+        style_encoder = VGG19(self.config["vgg_ckpt"]).to(device=self.device)
+        self.loss_manager = LossManager(self.config, style_encoder=style_encoder)
         self.current_iter = 0
         self.total_iterations = self.config["training_iterations"] + self.config["fine_tuning_iterations"]
         self.writer = SummaryWriter(log_dir=self.config["logs_directory"])
@@ -91,7 +93,7 @@ class ImageTrainer(Trainer):
             losses = self.loss_manager.compute_losses(content_batch, style_batch, stylized_batch) #, laplacian_list)
             # Backward and optimize
             total_loss = losses["total"]
-            print(f"Total loss: {total_loss}")
+            #print(f"Total loss: {total_loss}")
             self.optimizer.zero_grad()
             total_loss.backward()
             nn.utils.clip_grad_norm_(self.model.parameters(), 5)

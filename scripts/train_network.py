@@ -15,7 +15,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 parser = argparse.ArgumentParser()
 parser.add_argument('--base_name', default=None, help='Directory name to save')
 parser.add_argument('--mode', type=str, default='photorealistic')
-parser.add_argument('--vgg_ckpoint', type=str, default='checkpoints/vgg_normalised.pth')
+parser.add_argument('--vgg_ckpt', type=str, default='checkpoints/vgg_normalised.pth')
 # Dataset
 parser.add_argument('--train_content', default='/home/wenlinfeng/Downloads/unlabeled2017', help='Directory to dataset A')
 parser.add_argument('--train_style', default='/home/wenlinfeng/Downloads/unlabeled2017', help='Directory to dataset B')
@@ -90,7 +90,7 @@ cwct = cWCT(train_mode=True)
 
 # VGG for style loss
 from mcapst.models.VGG import VGG19
-vgg_enc = VGG19(args.vgg_ckpoint)
+vgg_enc = VGG19(args.vgg_ckpt)
 # encoder = nn.DataParallel(encoder)
 vgg_enc.to(device)
 

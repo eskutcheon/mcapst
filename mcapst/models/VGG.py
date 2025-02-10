@@ -76,14 +76,14 @@ class VGG19(nn.Module):
     def __init__(self, checkpoint):
         super(VGG19, self).__init__()
         vgg = build_vgg()
-        vgg.load_state_dict(torch.load(checkpoint))
+        vgg.load_state_dict(torch.load(checkpoint, weights_only=True))
         vgg_layers = list(vgg.children())
         self.enc_1 = nn.Sequential(*vgg_layers[:4])  # input -> relu1_1
         self.enc_2 = nn.Sequential(*vgg_layers[4:11])  # relu1_1 -> relu2_1
         self.enc_3 = nn.Sequential(*vgg_layers[11:18])  # relu2_1 -> relu3_1
         self.enc_4 = nn.Sequential(*vgg_layers[18:31])  # relu3_1 -> relu4_1
         self.enc_5 = nn.Sequential(*vgg_layers[31:45])  # relu4_1 -> relu5_1
-        # fix the encoder
+        # fix the encoder weights
         for name in ['enc_1', 'enc_2', 'enc_3', 'enc_4', 'enc_5']:
             for param in getattr(self, name).parameters():
                 param.requires_grad = False
@@ -91,16 +91,17 @@ class VGG19(nn.Module):
 
     # extract relu1_1 - relu(n_layer)_1 from input image
     def encode_with_intermediate(self, x, n_layer=4):
+        """ Extracts intermediate feature representations. """
         results = [x]
         for i in range(n_layer):
-            func = getattr(self, 'enc_{:d}'.format(i + 1))
-            results.append(func(results[-1]))
+            results.append(getattr(self, f'enc_{i + 1}')(results[-1]))
         return results[1:]
 
     # extract relu(n_layer)_1 from input image
     def encode(self, x, n_layer=4):
+        """ Extracts feature representations from the input image. """
         for i in range(n_layer):
-            x = getattr(self, 'enc_{:d}'.format(i + 1))(x)
+            x = getattr(self, f'enc_{i + 1}')(x)
         return x
 
     def calc_content_loss(self, input, target):
@@ -119,11 +120,10 @@ class VGG19(nn.Module):
         style_feats = self.encode_with_intermediate(style_images, n_layer)
         stylized_feats = self.encode_with_intermediate(stylized_images, n_layer)
         # content loss
+        loss_c = 0
         if content_weight > 0:
             content_feat = self.encode(content_images)
             loss_c = self.calc_content_loss(stylized_feats[3], content_feat)    # relu4_1
-        else:
-            loss_c = 0
         # style loss
         loss_s = self.calc_style_loss(stylized_feats[0], style_feats[0])
         for i in range(1, n_layer):
