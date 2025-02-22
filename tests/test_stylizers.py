@@ -1,14 +1,15 @@
 import torch
 import torchvision.transforms.v2 as TT
 import torchvision.io as IO
-from torchvision.utils import make_grid
+# from torchvision.utils import make_grid
 import os, sys
-import numpy as np
 sys.path.append(os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')))
 import time
-from mcapst.data.managers import BaseImageStylizer, BaseVideoStylizer
 from time import perf_counter
 from tqdm import tqdm
+import yaml
+
+from mcapst.data.managers import BaseImageStylizer, BaseVideoStylizer
 
 
 # TODO: define this in the YAML later
@@ -120,8 +121,29 @@ def test_video_inference(transfer_type="photo"):
                 time.sleep(1.0)
 
 
+def test_major_refactor_inference():
+    from mcapst.pipelines.infer import stage_inference_pipeline
+    # Define inference config
+    config_path = "temp_inference.yaml"
+    config = {
+        "base_name": "test_infer",
+        "transfer_mode": "photorealistic",
+        "input_path": "data/content/01.jpg",
+        "output_path": "data/test_output",
+        "alpha_c": 0.5,
+        "alpha_s": 0.5,
+        "use_segmentation": False,
+        "mask_path": None
+    }
+    # Save configuration
+    with open(config_path, "w") as file:
+        yaml.dump(config, file)
+    # Run inference
+    stage_inference_pipeline(mode="inference", config_path=config_path)
+
 
 
 #test_img_inference("photo")
 #test_multistyle_img_inference("photo")
-test_video_inference("photo")
+#test_video_inference("photo")
+test_major_refactor_inference()

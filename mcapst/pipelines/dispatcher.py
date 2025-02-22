@@ -4,7 +4,7 @@ import torch
 from threading import Semaphore, Lock
 from queue import Queue
 
-from data.managers import BaseImageStylizer
+from mcapst.data.managers import BaseImageStylizer
 # TODO: need to implement this for the remaining stylizer subclasses, including for video
 
 
@@ -39,8 +39,10 @@ class StyleTransferDispatcher:
 
 
     def _initialize_style_managers(self, transfer_type, ckpt_dir, max_size, num_copies_each: List[int]):
+        raise DeprecationWarning("This method is deprecated and will be removed in a future version")
         if not isinstance(transfer_type, (list, tuple)):
             transfer_type = [transfer_type]
+        # TODO: need a new way of loading and filtering configuration arguments before just calling .infer.stage_inference_pipeline
         for mode_idx, mode in enumerate(transfer_type):
             for _ in range(num_copies_each[mode_idx]):
                 ckpt_path = os.path.join(ckpt_dir, f"{mode}_image.pt")
@@ -49,6 +51,7 @@ class StyleTransferDispatcher:
                 manager = BaseImageStylizer(mode=mode, ckpt=ckpt_path, max_size=max_size,
                                                         save_results=False, output_dir=st_output_dir)
                 self.style_managers[mode].append(manager)
+
 
     def get_available_manager(self, mode="art"):
         """ Acquires an available style manager and its index from the pool.

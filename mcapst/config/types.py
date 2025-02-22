@@ -17,15 +17,14 @@ LongTensor: TypeAlias = "torch.LongTensor"
 if TYPE_CHECKING:
     from mcapst.models.containers import FeatureContainer
 
-# FIXME: might split this into two types since AugmentationWrapper typically contains a list of AugmentationFunctionalWrappers
-AugWrapperType: TypeAlias = "AugmentationWrapper"
-AugFuncWrapperType: TypeAlias = "AugmentationFunctionalWrapper"
 FeatureContainerType: TypeAlias = "FeatureContainer"
-ParameterType: TypeAlias = Union["Parameter", "ParameterVector", "LearnableParameter"]
 
 # Frequently-used complex types for annotations
 Batch: TypeAlias = Dict[str, Union[Tensor, Any]]  # Example: A batch might be a dictionary with tensors.
 ImgMaskPair: TypeAlias = Dict[str, Union[Tensor, tv_tensors.Image, tv_tensors.Mask, Any]]  # Example: A pair of image and mask tensors.
+
+
+
 
 
 __all__ = [
@@ -34,10 +33,7 @@ __all__ = [
     "IntTensor",
     "ByteTensor",
     "LongTensor",
-    "AugWrapperType",
-    "AugFuncWrapperType",
     "FeatureContainerType",
-    "ParameterType",
     "Batch",
     "ImgMaskPair",
 ]

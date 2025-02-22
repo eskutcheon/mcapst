@@ -39,7 +39,7 @@ class StyleWeights:
             self.weights = self.weights.tolist()
         # ensure self.num_items matches the number of style weights
         if len(self.weights) != self.num_items:
-            print(f"WARNING: got num_items = {self.num_items}, but len(weights) = {len(self.weights)}; using default weights instead...")
+            #print(f"WARNING: got num_items = {self.num_items}, but len(weights) = {len(self.weights)}; using default weights instead...")
             self.weights = self._default_weights()
             self.num_items = len(self.weights)
         # ensure weights are valid numeric types in [0,1]
@@ -101,7 +101,7 @@ def preprocess_and_postprocess(func):
 
 
 
-# TODO: transition this to a hybrid builder/factory design pattern for the FeatureContainer class to keep the same classes for masked style transfer
+# TODO: transition this to a hybrid builder/factory design pattern for the FeatureContainer class to use a different variant for masked style transfer
     #& I'm considering looking into the pytorch dunder method `__torch_function__` for this to override all calls by pytorch functions
     # https://pytorch.org/docs/stable/notes/extending.html#extending-torch-python-api
     # https://github.com/docarray/notes/blob/main/blog/02-this-weeks-in-docarray-01.md
@@ -189,13 +189,5 @@ class FeatureContainer(object):
             f"mask_present={self.mask is not None})"
         )
 
-
-# ~ IDEA: consider multiple inheritance with Enum type for feature tensors
-class MultiFeatureContainer(FeatureContainer):
-    def __init__(self, feature_list: list, alpha_list: list):
-        raise NotImplementedError
-        super().__init__(features=None)
-        self.feature_list = feature_list
-        self.alpha_list = alpha_list
 
 

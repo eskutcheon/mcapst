@@ -4,9 +4,9 @@ import torch
 import torch.nn as nn
 import numpy as np
 import datetime
-from mcapst.utils.dataset import get_data_loader_folder
-from mcapst.utils.utils import prepare_sub_folder, write_2images, write_html, print_params, adjust_learning_rate
-from mcapst.utils.MattingLaplacian import laplacian_loss_grad
+from .utils.dataset import get_data_loader_folder
+from .utils.utils import prepare_sub_folder, write_2images, write_html, print_params, adjust_learning_rate
+from .utils.MattingLaplacian import laplacian_loss_grad
 
 torch.backends.cudnn.benchmark = True
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -140,7 +140,6 @@ while current_iter < total_iterations:
         continue
     # Backward inference
     stylized = RevNetwork(z_cs, forward=False)
-    # TODO: encapsulate all losses in a class (maybe nn.Module) that adds the weighted losses (based on arguments) and returns the total loss
     # Style loss
     loss_c, loss_s = vgg_enc(images_a, images_b, stylized, n_layer=4, content_weight=args.content_weight)
     # Cycle reconstruction
@@ -196,7 +195,6 @@ while current_iter < total_iterations:
     nn.utils.clip_grad_norm_(RevNetwork.parameters(), 5)
     optimizer.step()
 
-    # TODO: abstract all logging and checkpoint saving to separate functions/classes
     # Dump training stats in log file
     if (current_iter + 1) % 10 == 0:
         message = "Iteration: %08d/%08d  content_loss:%.4f  lap_loss:%.4f  rec_loss:%.4f  style_loss:%.4f  loss_tmp:%.4f  loss_tmp_GT:%.4f" % (

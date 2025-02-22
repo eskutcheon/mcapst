@@ -1,98 +1,151 @@
-from typing import Dict, Union, Literal
+from typing import Union, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-# local imports
+
 
 
 
 #^ Temporal loss code formerly in mcapst/utils/TemporalLoss.py
 class TemporalLoss(nn.Module):
-    """ Regularization from paper: Consistent Video Style Transfer via Compound Regularization """
-    def __init__(self, use_fake_flow=True, use_optical_flow=False, data_w=True, noise_level=1e-3,
-                 motion_level=8, shift_level=10, flow_model=None):
+    """ Handles both the original "fake flow" approach and (optionally) real flow for future implementations
+        By default, it replicates the old approach:
+            - GenerateFakeData: produce second_frame + flow from first_frame
+            - forward_temporal: warp the first frame with the flow, measure L1 diff
+    """
+    #Regularization from paper: Consistent Video Style Transfer via Compound Regularization: https://daooshee.github.io/CompoundVST/
+    def __init__(self, use_fake_flow=True, warp_flag=True, noise_level=1e-3, motion_level=8, shift_level=10, flow_model=None):
+        """
+            Args:
+            use_fake_flow:              whether to generate "fake" flow for training
+            warp_flag:                  if True, warp the first frame before computing the difference
+            noise_level:                how much random noise to apply to the second frame
+            motion_level, shift_level:  parameters controlling the magnitude of fake flow
+            flow_model:                 if providing a real optical-flow model (e.g. RAFT).
+        """
         super(TemporalLoss, self).__init__()
         self.MSE = torch.nn.MSELoss()
         self.use_fake_flow = use_fake_flow
-        self.use_optical_flow = use_optical_flow
-        self.data_w = data_w
+        self.warp_flag = warp_flag
         self.noise_level = noise_level
         self.motion_level = motion_level
         self.shift_level = shift_level
-        self.flow_model = flow_model
-        if use_optical_flow and flow_model is None:
+        if not self.use_fake_flow:
+            self._initialize_real_flow_model(flow_model)  # Initialize the real optical flow model if provided
+    """ Flow should have most values in the range of [-1, 1].
+        For example, values x = -1, y = -1 is the left-top pixel of input,
+        and values  x = 1, y = 1 is the right-bottom pixel of input.
+        Flow should be from pre_frame to cur_frame
+    """
+
+    def _initialize_real_flow_model(self, flow_model):
+        """ Initialize the real optical flow model if provided """
+        if not self.use_fake_flow and flow_model is None:
             from torchvision.models.optical_flow import raft_small
             self.flow_model = raft_small(pretrained=True).eval()
-    """ Flow should have most values in the range of [-1, 1]. 
-        For example, values x = -1, y = -1 is the left-top pixel of input, 
-        and values  x = 1, y = 1 is the right-bottom pixel of input.
-        Flow should be from pre_frame to cur_frame """
+        elif flow_model is not None:
+            self.flow_model = flow_model
+        else:
+            raise ValueError("No optical flow model provided.")
 
     @staticmethod
-    def warp(x, flo, padding_mode='border'):
-        """ Optical flow warping function """
+    def warp(x: torch.Tensor, flo: torch.Tensor, padding_mode: str = 'border') -> torch.Tensor:
+        """ warp tensor x according to flow, which is shape (B,2,H,W) in [-1,1] """
         B, C, H, W = x.size()
         # Mesh grid
-        xx = torch.arange(0, W).view(1, -1).repeat(H, 1)
-        yy = torch.arange(0, H).view(-1, 1).repeat(1, W)
-        xx = xx.view(1, 1, H, W).repeat(B, 1, 1, 1)
-        yy = yy.view(1, 1, H, W).repeat(B, 1, 1, 1)
-        grid = torch.cat((xx, yy), 1).float().to(device=x.device)
-        print("grid shape: ", grid.shape)
-        print("flo shape: ", flo.shape)
+        xx = torch.arange(0, W, device=x.device).view(1, -1).repeat(H, 1)
+        yy = torch.arange(0, H, device=x.device).view(-1, 1).repeat(1, W)
+        xx = xx.view(1, 1, H, W).repeat(B, 1, 1, 1) # shape (B,1,H,W)
+        yy = yy.view(1, 1, H, W).repeat(B, 1, 1, 1) # shape (B,1,H,W)
+        grid = torch.cat((xx, yy), dim=1).float()
+        # flow is from first_frame -> second_frame, so we compute "vgrid = base - flow" to align "first_frame" with "second_frame".
         vgrid = grid - flo
-        # Scale grid to [-1,1]
+        # scale grid to [-1,1]
         vgrid[:, 0, :, :] = 2.0 * vgrid[:, 0, :, :] / max(W - 1, 1) - 1.0
         vgrid[:, 1, :, :] = 2.0 * vgrid[:, 1, :, :] / max(H - 1, 1) - 1.0
         vgrid = vgrid.permute(0, 2, 3, 1)
         #** NOTE: previously used mode='nearest', but 'bilinear' is more common
-        return F.grid_sample(x, vgrid, padding_mode=padding_mode, mode='bilinear')
+        return F.grid_sample(x, vgrid, padding_mode=padding_mode, mode='bilinear', align_corners=False)
 
-    def GaussianNoise(self, ins, mean=0, stddev=0.001):
-        stddev = stddev + torch.rand(1).item() * stddev
-        noise = torch.normal(mean, stddev, size=ins.shape, device=ins.device)
-        return ins + noise
-
-    def GenerateFakeFlow(self, height, width):
-        if self.motion_level > 0:
-            flow = torch.normal(0, self.motion_level, size=(2, height, width), device="cpu")
-            flow += torch.randint(-self.shift_level, self.shift_level + 1, size=(2, height, width), device="cpu")
-            flow = F.avg_pool2d(flow.unsqueeze(0), kernel_size=100, stride=1, padding=50).squeeze(0)
-        else:
-            flow = torch.ones(2, height, width, device="cpu") * torch.randint(-self.shift_level, self.shift_level + 1, (1,), device="cpu")
+    #@torch.no_grad()
+    def compute_optical_flow(self, frameA: torch.Tensor, frameB: torch.Tensor) -> torch.Tensor:
+        """ If we're using an optical-flow model (e.g. RAFT), compute real flow from A->B.
+            Args:
+                frameA, frameB: tensors of shape [B,C,H,W].
+        """
+        # RAFT typically expects frames in shape [N,C,H,W]. If B>1, RAFT should support batched input
+        if frameA.shape[0] != 1 or frameB.shape[0] != 1:
+            raise NotImplementedError("Batch optical flow not currently implemented.")
+        flow = self.flow_model(frameA, frameB)[-1]  # RAFT returns a list of flows
         return flow
 
-    #** NOTE: in the original implementation, this function had more conditionals based on self.data_w, where GenerateFakeFlow was called only when self.data_w was True
-    def GenerateFakeData(self, first_frame):
-        forward_flow = self.GenerateFakeFlow(first_frame.shape[2], first_frame.shape[3]).to(first_frame.device)
-        forward_flow = forward_flow.unsqueeze(0).expand(first_frame.shape[0], -1, -1, -1)
-        second_frame = self.warp(first_frame, forward_flow)
-        if self.noise_level > 0:
-            second_frame = self.GaussianNoise(second_frame, stddev=self.noise_level)
-        return second_frame, forward_flow
-
-    #** NEW: added since the original only implemented fake data generation
-    @torch.no_grad()
-    def compute_optical_flow(self, prev_frame, current_frame):
-        """ Uses the pre-trained RAFT model to estimate optical flow between frames """
-        prev_frame = prev_frame.unsqueeze(0) if prev_frame.dim() == 3 else prev_frame
-        current_frame = current_frame.unsqueeze(0) if current_frame.dim() == 3 else current_frame
-        flow = self.flow_model(prev_frame, current_frame)[-1]
-        return flow
-
-    def forward(self, first_frame, second_frame, prev_flow=None):
-        #** NOTE: previously only called `warp` if self.data_w was True
-        """ Compute temporal consistency loss. """
+    #** NOTE: original implementation had more conditionals based on self.warp_flag, where fake flow was created if self.warp_flag was True
+    def generate_fake_data(self, first_frame: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """ Creates a 'fake' second frame + flow from first_frame """
         B, C, H, W = first_frame.shape
-        # Use optical flow if enabled
-        if self.use_optical_flow:
-            forward_flow = self.compute_optical_flow(first_frame, second_frame) if prev_flow is None else prev_flow
-        elif self.use_fake_flow:
-            forward_flow = self.GenerateFakeFlow(H, W).to(first_frame.device).unsqueeze(0).expand(B, -1, -1, -1)
+        # generate random flow
+        flow_2d = self._generate_fake_flow(H, W).to(first_frame.device)
+        print("shape of flow_2d: ", flow_2d.shape)
+        # repeat for the batch dimension
+        flow_4d = flow_2d.unsqueeze(0).expand(B, -1, -1, -1)  # (B,2,H,W)
+        # warp first_frame => second_frame
+        print("shape of flow_4d: ", flow_4d.shape)
+        second_frame = self.warp(first_frame, flow_4d)
+        # optionally add some random noise
+        if self.noise_level > 0:
+            second_frame = self._add_gaussian_noise(second_frame, stddev=self.noise_level)
+        return second_frame, flow_4d
+
+    def _generate_fake_flow(self, height: int, width: int) -> torch.Tensor:
+        """ the original implementation's logic: random normal, random shift, large blur => "fake" motion """
+        if self.motion_level > 0:
+            # shape [2,H,W]
+            flow = torch.normal(0, self.motion_level, size=(2, height, width))
+            print("shape of flow before shift: ", flow.shape)
+            flow += torch.randint(-self.shift_level, self.shift_level + 1, size=(2, height, width))
+            print("shape of flow after shift: ", flow.shape)
+            # approximate smoothing with very large kernel
+            #flow = F.avg_pool2d(flow.unsqueeze(0), kernel_size=100, stride=1, padding=50, ceil_mode=True).squeeze(0)
+            #! may not work as intended since a large kernel may be needed to avoid artifacts
+            flow = F.adaptive_avg_pool2d(flow.unsqueeze(0), (height, width)).squeeze(0)
+            print("generating fake flow with shape: ", flow.shape)
         else:
-            raise ValueError("At least one flow method must be enabled.")
-        # Warp first frame using estimated flow
-        warped_frame = self.warp(first_frame, forward_flow)
-        # Compute temporal consistency loss
-        temporal_loss = torch.mean(torch.abs(warped_frame - second_frame))
-        return temporal_loss, forward_flow
+            # fallback using constant flow
+            flow = torch.ones(2, height, width) * torch.randint(-self.shift_level, self.shift_level + 1, (1,))
+            print("generating constant flow with shape: ", flow.shape)
+        return flow # shape (2,H,W)
+
+    def _add_gaussian_noise(self, tensor: torch.Tensor, mean: float = 0, stddev: float = 1e-3) -> torch.Tensor:
+        stddev = stddev + torch.rand(1).item() * stddev
+        noise = torch.normal(mean, stddev, size=tensor.shape, device=tensor.device)
+        return tensor + noise
+
+    def compute_temporal_loss(self, first_frame: torch.Tensor, second_frame: torch.Tensor, flow: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """ (almost) equivalent to the original authors' "forward" method """
+        # optionally warp the first frame with the given flow
+        if self.warp_flag:
+            warped = self.warp(first_frame, flow)
+        else:
+            warped = first_frame
+        # L1 difference between warped first_frame and second_frame
+        temporalloss = torch.mean(torch.abs(warped - second_frame))
+        return temporalloss, warped
+
+
+    def forward(self, seqA: torch.Tensor, seqB: torch.Tensor, flow: torch.Tensor = None) -> torch.Tensor:
+        """ optional single `forward` method conforming to nn.Module interface:
+            - If flow is None and use_optical_flow=True, compute real flow between A->B
+            - If flow is None and use_fake_flow=True, generate random flow. (Though typically you'd call generate_fake_data upstream)
+            - Then warp A, compute L1 difference from B, return scalar loss
+        """
+        B, C, H, W = seqA.shape
+        if flow is None:
+            if self.use_fake_flow:
+                # generate random flow of shape (B,2,H,W)
+                flow_2d = self._generate_fake_flow(H, W).to(seqA.device)
+                flow = flow_2d.unsqueeze(0).expand(B, -1, -1, -1)
+            else:
+                flow = self.compute_optical_flow(seqA, seqB)
+        # compute L1 difference
+        temporal_loss, _ = self.compute_temporal_loss(seqA, seqB, flow)
+        return temporal_loss

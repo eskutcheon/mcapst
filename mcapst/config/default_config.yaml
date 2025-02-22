@@ -6,9 +6,10 @@ training:
   epochs: 50
   batch_size: 16
   learning_rate: 0.001
-  content_weight: 1.0
-  style_weight: 1.0
-  laplacian_weight: 1.0
+  loss_cfg:
+    content_weight: 1.0
+    style_weight: 1.0
+    laplacian_weight: 1.0
 
 data:
   content_dir: data/content/

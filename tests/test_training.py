@@ -4,6 +4,7 @@ import yaml
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 # from mcapst.data.datasets import HFImageDataset
 from mcapst.pipelines.train import ImageTrainer
+from mcapst.config.configure import ConfigManager
 
 def main():
     # Create a temporary config file
@@ -11,49 +12,45 @@ def main():
     config = {
         "base_name": "test_run",
         "mode": "photorealistic",
-        "vgg_ckpt": "checkpoints/vgg_normalised.pth",
-        "train_content": "data/train_content",
-        "train_style": "data/train_style",
-        "batch_size": 2,
-        "new_size": 512,
-        "crop_size": 256,
-        "use_lap": True,
-        "win_rad": 1,
+        #"win_rad": 1,
         "lr": 1e-4,
         "lr_decay": 5e-5,
-        "style_weight": 1.0,
-        "content_weight": 1.0,
-        "lap_weight": 1,
-        "rec_weight": 10,
-        "temporal_weight": 0,
+        "data_cfg": {
+            "train_content": "data/train_content",
+            "train_style": "data/train_style",
+            "batch_size": 2,
+            "new_size": 512,
+            "crop_size": 256,
+            "use_local_datasets": False,
+            #"use_segmentation": False, # not implemented with the Laplacian yet
+        },
+        "loss_cfg": {
+            "style_weight": 1.0,
+            "content_weight": 1.0,
+            "lap_weight": 1,
+            "rec_weight": 10,
+            "temporal_weight": 0,
+            "vgg_ckpt": "checkpoints/vgg_normalised.pth",
+            "use_lap": True,
+        },
         "training_iterations": 10,
-        "fine_tuning_iterations": 1,
+        #"fine_tuning_iterations": 1,
         "resume": False,
-        "resume_iter": -1,
+        #"resume_iter": -1,
         "logs_directory": "logs",
-        "display_size": 16,
-        "image_display_iter": 1,
-        "image_save_iter": 1,
-        "model_save_interval": 1,
-        "checkpoint_directory": "checkpoints",
+        #"display_size": 16,
+        #"image_display_iter": 1,
+        #"image_save_iter": 100,
+        "model_save_interval": 100,
+        #"checkpoint_directory": "checkpoints",
         "log_interval": 1,
-        "checkpoint_interval": 1
     }
     with open(config_path, "w") as file:
         yaml.dump(config, file)
 
-    # Load the HuggingFace datasets
-    #content_dataset = HFImageDataset("bitmind/MS-COCO-unique-256", split="train[:1%]", use_lap=False)
-    #style_dataset = HFImageDataset("huggan/wikiart", split="train[:1%]", use_lap=False)
-
-    # Create data loaders
-    #content_loader = DataLoader(content_dataset, batch_size=config["batch_size"], shuffle=True)
-    #style_loader = DataLoader(style_dataset, batch_size=config["batch_size"], shuffle=True)
-
-    # Fetch a batch of data
-    #content_batch = next(iter(content_loader))
-    #style_batch = next(iter(style_loader))
-    trainer = ImageTrainer(config_path)
+    # Load ConfigManager and initialize training
+    config_manager = ConfigManager(mode="training", config_path=config_path)
+    trainer = ImageTrainer(config_manager.get_config())
     trainer.train()
 
     # Clean up

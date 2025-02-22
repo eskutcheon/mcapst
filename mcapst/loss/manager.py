@@ -1,7 +1,7 @@
 
 """ will be moving the temporal loss and Matting Laplacian loss to this file while refactoring to use pure pytorch """
 
-from typing import Dict, Union, Literal
+from typing import Dict, Union, Literal, Callable
 import torch
 import torch.nn as nn
 # local imports
@@ -13,43 +13,50 @@ from .temporal_loss import TemporalLoss
 
 
 class LossManager:
+    # TODO: replace with custom type hinting later
     def __init__(self, config: Dict[str, Union[str, int, float, bool]], style_encoder=None):
         """ Loss manager for computing various losses during training.
             Args:
                 config (dict): Configuration dictionary.
                 style_encoder (BaseStyleEncoder, optional): A style encoding model for computing content/style loss.
         """
-        self.config = config
         self.l1_loss = nn.L1Loss()
-        self.lap_weight = config.get("lap_weight", 0)
-        self.temporal_weight = config.get("temporal_weight", 0)
-        # !!! FIXME: fix arguments for TemporalLoss and fully test the functionality of the class - currently not working bc of a shape mismatch
-        """ #TODO: address this error:
-            vgrid = grid - flo
-            RuntimeError: The size of tensor a (256) must match the size of tensor b (257) at non-singleton dimension 3
-        """
+        self.content_weight = config.content_weight
+        self.style_weight = config.style_weight
+        self.rec_weight = config.rec_weight
+        self.lap_weight = config.lap_weight
+        self.temporal_weight = config.temporal_weight
         self.temporal_loss = TemporalLoss() if self.temporal_weight > 0 else None
-        self.style_encoder = style_encoder if style_encoder is not None else VGG19(config["vgg_ckpt"])  # Store style encoder or use default VGG19
-        #self.laplacian_loss_grad = laplacian_loss_grad if self.lap_weight > 0 else None
-        self.laplacian_loss_module = MattingLaplacianLoss(win_rad=config.get("win_rad", 1), objective="mse") if self.lap_weight > 0 else None
+        self.style_encoder = style_encoder if style_encoder is not None else VGG19(config.vgg_ckpt)  # Store style encoder or use default VGG19
+        # NOTE: using win_rad = 1 because only 3x3 kernels are supported for now - the original never supported larger kernels either
+        self.laplacian_loss_module = MattingLaplacianLoss(win_rad=1, objective="mse") if self.lap_weight > 0 else None
 
+    @staticmethod
+    def _toggle_grad(*args):
+        """ Helper function to toggle gradient computation for a list of tensors. """
+        for arg in args:
+            if isinstance(arg, torch.Tensor):
+                arg.requires_grad = not arg.requires_grad
+            # else:
+            #     raise TypeError(f"Expected torch.Tensor, got {type(arg)}")
+        #return args
 
-    def compute_losses(self, content_img, style_img, stylized_img, mask = None): #, laplacian_list=None):
+    def compute_losses(self, content_img, style_img, stylized_img, mask = None, stylizer_callback: Callable = None): #, laplacian_list=None):
         """ Computes all losses, including Matting Laplacian loss if enabled, while ensuring differentiability for backpropagation. """
-        content_loss, style_loss = self._compute_content_style_loss(content_img, style_img, stylized_img, self.config["content_weight"], self.config["style_weight"])
-        #content_loss = self.config["content_weight"] * self._compute_content_loss(content_img, stylized_img)
-        #style_loss = self.config["style_weight"] * self._compute_style_loss(style_img, stylized_img)
-        reconstruction_loss = self._compute_reconstruction_loss(content_img, stylized_img, self.config["rec_weight"])
-        laplacian_loss = torch.tensor(0.0, device=content_img.device, requires_grad=True)
-        if self.lap_weight > 0:
-            laplacian_loss = self._compute_laplacian_loss(content_img, stylized_img, mask, self.config["lap_weight"]) #, laplacian_list)
-        temporal_loss = torch.tensor(0.0, device=content_img.device, requires_grad=True)
-        if self.temporal_weight > 0:
-            temporal_loss = self._compute_temporal_loss(content_img, stylized_img, self.config["temporal_weight"])
+        content_loss, style_loss = self._compute_content_style_loss(content_img, style_img, stylized_img, self.content_weight, self.style_weight)
+        # Toggle gradient computation for content and stylized images and mask if provided
+        self._toggle_grad(content_img, stylized_img, mask)
+        reconstruction_loss = self._compute_reconstruction_loss(content_img, stylized_img, self.rec_weight)
+        laplacian_loss = self._compute_laplacian_loss(content_img, stylized_img, mask, self.lap_weight) #, laplacian_list)
+        temporal_loss = self._compute_temporal_loss(content_img, stylized_img, self.temporal_weight, stylizer_callback)
         # dynamically construct the losses dictionary from __local__ variables, removing `_loss` suffix from keys
         losses = {key.replace("_loss", ""): value for key, value in locals().items() if key.endswith("_loss")}
+        # for key, loss in losses.items():
+        #     if not isinstance(loss, torch.Tensor):
+        #         raise ValueError(f"Loss value {loss} is not a tensor.")
+        #     print(f"{key} loss gradients: ", loss.requires_grad)
         # Total Loss - Ensure summation does not break autograd tracking
-        losses["total"] = sum(value for value in losses.values())
+        losses["total"] = sum(losses.values())
         return losses
 
     def _compute_laplacian_loss(self, content_img, stylized_img, mask=None, weight=1.0): #, laplacian_list):
@@ -57,20 +64,36 @@ class LossManager:
             laplacian_list [torch.Tensor]: (B, H, W) computed from the content images via our compute_laplacian function.
             NOTE: gradient differentiation is handled by pytorch autograd with MattingLaplacianLoss's superclass nn.Module
         """
+        if mask is not None:
+            raise NotImplementedError("Masking is not implemented for Laplacian loss yet.")
+        if weight == 0:
+            return torch.tensor(0.0, device=content_img.device, requires_grad=True)
         return weight * self.laplacian_loss_module(content_img, stylized_img)
-        # # Use mean squared error between the stylized response and the precomputed response.
-        # return F.mse_loss(lap_stylized, laplacian_list)
 
     def _compute_content_style_loss(self, content_img, style_img, stylized_img, cweight=1.0, sweight=1.0):
         """ Computes both content and style losses using the style encoder. """
-        closs, sloss =  self.style_encoder(content_img, style_img, stylized_img, n_layer=4, content_weight=self.config["content_weight"])
+        # NOTE: content_weight is only passed here so that the encoder avoids computing the content loss if content_weight == 0 (from original authors)
+        # print("==COMPUTING STYLE AND CONTENT LOSS==")
+        # print("content_img.shape: ", content_img.shape)
+        # print("style_img.shape: ", style_img.shape)
+        # print("stylized_img.shape: ", stylized_img.shape)
+        # TODO: inputs might absolutely have to have shape [256,256] since the VGG19 model is trained on 256x256 images
+        closs, sloss =  self.style_encoder(content_img, style_img, stylized_img, n_layer=4, content_weight=self.content_weight)
         return cweight * closs, sweight * sloss
 
     def _compute_reconstruction_loss(self, content_img, stylized_img, weight=1.0):
-        # Placeholder: L1 loss for reconstruction
         return weight * self.l1_loss(content_img, stylized_img)
 
-    def _compute_temporal_loss(self, content_img, stylized_img, weight=1.0):
-        # Placeholder: Temporal loss computation
-        # TODO: double check that this is properly implemented from the old train.py script (around line 177)
-        return weight * self.temporal_loss(content_img, stylized_img)
+    def _compute_temporal_loss(self, content_img: torch.Tensor, stylized_img: torch.Tensor, weight=1.0, callback: Callable = None):
+        if weight == 0:
+            return torch.tensor(0.0, device=content_img.device, requires_grad=True)
+        # NOTE: the original authors used the first frame of the content image as the previous frame for computing optical flow
+        #return weight * self.temporal_loss(stylized_img[:-1], stylized_img[1:], prev_flow=None, use_fake_flow=True)
+        second_frame, flow = self.temporal_loss.generate_fake_data(content_img)
+        # stylize second frames with the callback (might want a more elegant way to do this in the future)
+        stylized_second = callback(second_frame)
+        # compute temporal loss between stylized frames
+        loss_tmp, _ = self.temporal_loss.compute_temporal_loss(stylized_img, stylized_second, flow)
+        # optional “ground truth” checks
+        #loss_tmp_GT, _ = self.temporal_loss.compute_temporal_loss(content_img, second_frame, flow)
+        return weight * loss_tmp

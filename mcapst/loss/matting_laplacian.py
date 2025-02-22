@@ -288,7 +288,7 @@ class MattingLaplacianLoss(nn.Module):
             Returns:
                 loss (Tensor): A scalar tensor representing the mean squared error between the laplacian responses.
         """
-        lap_content = self.postprocess(self.compute_laplacian(content_img, mask=mask))
+        lap_content = self.postprocess(self.compute_laplacian(content_img, mask=mask))  # Enable gradients for content Laplacian
         if self.objective == "mse":
             lap_stylized = self.postprocess(self.compute_laplacian(stylized_img, mask=mask))
             return self.sparse_mse_loss(lap_stylized, lap_content)
