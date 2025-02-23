@@ -119,8 +119,8 @@ class VGG19(nn.Module):
     def forward(self, content_images, style_images, stylized_images, n_layer=4, content_weight=0):
         style_feats = self.encode_with_intermediate(style_images, n_layer)
         stylized_feats = self.encode_with_intermediate(stylized_images, n_layer)
-        # print("style_feats shape: ", [f.shape for f in style_feats])
-        # print("stylized_feats shape: ", [f.shape for f in stylized_feats])
+        print("style_feats shape: ", [f.shape for f in style_feats])
+        print("stylized_feats shape: ", [f.shape for f in stylized_feats])
         # content loss
         loss_c = 0
         if content_weight > 0:

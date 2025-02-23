@@ -97,7 +97,7 @@ class TrainerBase:
 class ImageTrainer(TrainerBase):
     def __init__(self, config: Union[TrainingConfig, Dict[str, Any]]):
         super().__init__(config)
-        from mcapst.data.managers import BaseImageStylizer
+        from mcapst.data.stylizers import BaseImageStylizer
         # TODO: if I keep using stylizer classes, I'll have to add some staging for choosing this or the MaskedImageStylizer class
         self.transfer_module = BaseImageStylizer(
             mode=self.config.transfer_mode,
@@ -123,8 +123,9 @@ class ImageTrainer(TrainerBase):
             content_batch, style_batch = self.data_manager.get_next_batches()
             content_batch = content_batch["img"].to(self.device)
             style_batch = style_batch["img"].to(self.device)
+            print("style_batch shape: ", style_batch.shape)
             # Forward pass
-            stylized_batch = self.transfer_module.transform(content_batch, style_batch, alpha_c = alpha_c, alpha_s = alpha_s)
+            stylized_batch = self.transfer_module.transform(content_batch, [style_batch], alpha_c = alpha_c, alpha_s = alpha_s)
             losses = self.loss_manager.compute_losses(content_batch, style_batch, stylized_batch) #, laplacian_list)
             # Backward and optimize
             total_loss = losses["total"]
@@ -155,7 +156,7 @@ class VideoTrainer(TrainerBase):
         # using the BaseImageStylizer since the original implementation only generated fake optical flow data between unrelated images in a batch
             # eventually, I'll add a new data manager for batching video frames and generating real optical flow data in the same manner as it does now.
         # TODO: if I keep using stylizer classes, I'll have to add some staging for choosing this or the MaskedImageStylizer class
-        from mcapst.data.managers import BaseImageStylizer
+        from mcapst.data.stylizers import BaseImageStylizer
         self.transfer_module = BaseImageStylizer(
             mode=self.config.transfer_mode,
             ckpt=self.config.ckpt_path,
@@ -187,8 +188,8 @@ class VideoTrainer(TrainerBase):
             content_batch = content_batch["img"].to(self.device)
             style_batch = style_batch["img"].to(self.device)
             # Forward pass
-            stylized_batch = self.transfer_module.transform(content_batch, style_batch, alpha_c = alpha_c, alpha_s = alpha_s)
-            temp_stylizer_callback = lambda x: self.transfer_module.transform(x, style_batch, alpha_c = alpha_c, alpha_s = alpha_s)
+            stylized_batch = self.transfer_module.transform(content_batch, [style_batch], alpha_c = alpha_c, alpha_s = alpha_s)
+            temp_stylizer_callback = lambda x: self.transfer_module.transform(x, [style_batch], alpha_c = alpha_c, alpha_s = alpha_s)
             losses = self.loss_manager.compute_losses(content_batch, style_batch, stylized_batch, stylizer_callback=temp_stylizer_callback) #, laplacian_list)
             # Backward and optimize
             total_loss = losses["total"]

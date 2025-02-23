@@ -116,6 +116,7 @@ def test_stage_training_pipeline_dict_override(dummy_train_content, dummy_train_
                 "batch_size": 1,
                 "new_size": 256,
                 "use_local_datasets": False,
+                "streaming": True,
             },
             "loss_cfg": {
                 "style_weight": 1.0,

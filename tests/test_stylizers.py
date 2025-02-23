@@ -9,7 +9,7 @@ from time import perf_counter
 from tqdm import tqdm
 import yaml
 
-from mcapst.data.managers import BaseImageStylizer, BaseVideoStylizer
+from mcapst.data.stylizers import BaseImageStylizer, BaseVideoStylizer
 
 
 # TODO: define this in the YAML later

@@ -35,7 +35,11 @@ class DatasetConfig:
     new_size: int = 512
     crop_size: int = 256
     use_local_datasets: bool = False
+    streaming: bool = False
 
+    # def __post_init__(self):
+    #     if not self.use_local_datasets:
+    #         streaming = True
 
 
 @dataclass

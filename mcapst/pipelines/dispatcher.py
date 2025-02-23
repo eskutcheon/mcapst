@@ -4,7 +4,7 @@ import torch
 from threading import Semaphore, Lock
 from queue import Queue
 
-from mcapst.data.managers import BaseImageStylizer
+from mcapst.data.stylizers import BaseImageStylizer
 # TODO: need to implement this for the remaining stylizer subclasses, including for video
 
 

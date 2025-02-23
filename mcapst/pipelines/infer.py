@@ -7,7 +7,7 @@ from torchvision.transforms.v2 import Compose, ToDtype, Lambda, Resize
 # local imports
 #from .dispatcher import StyleTransferDispatcher
 from mcapst.config.configure import ConfigManager, InferenceConfig
-from mcapst.data.managers import BaseImageStylizer, BaseVideoStylizer, MaskedImageStylizer
+from mcapst.data.stylizers import BaseImageStylizer, BaseVideoStylizer, MaskedImageStylizer
 from mcapst.utils.utils import ensure_file_list_format
 
 
