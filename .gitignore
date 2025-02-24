@@ -161,7 +161,7 @@ cython_debug/
 .vscode/
 .neptune/
 .env/
-# data/
+data/
 results/
 checkpoints/
 logs/

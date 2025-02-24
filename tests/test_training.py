@@ -2,7 +2,7 @@ import os
 import sys
 import yaml
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-# from mcapst.data.datasets import HFImageDataset
+# from mcapst.datasets.datasets import HFImageDataset
 from mcapst.pipelines.train import ImageTrainer
 from mcapst.config.configure import ConfigManager
 

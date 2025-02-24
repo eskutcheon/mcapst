@@ -7,7 +7,6 @@ from torchvision.transforms.v2 import Compose, ToDtype, Lambda, Resize
 # local imports
 #from .dispatcher import StyleTransferDispatcher
 from mcapst.config.configure import ConfigManager, InferenceConfig
-from mcapst.data.stylizers import BaseImageStylizer, BaseVideoStylizer, MaskedImageStylizer
 from mcapst.utils.utils import ensure_file_list_format
 
 
@@ -101,6 +100,7 @@ class ImageInference(InferenceBase):
 
     def _load_stylizer(self):
         """ selects either BaseImageStylizer or MaskedImageStylizer depending on config.use_segmentation """
+        from mcapst.stylizers.image_stylizers import BaseImageStylizer, MaskedImageStylizer
         mode = self.config.transfer_mode  # "art" or "photo"
         ckpt_path = self.config.ckpt_path
         max_size = self.config.max_size
@@ -182,6 +182,7 @@ class VideoInference(InferenceBase):
 
     def _load_stylizer(self):
         """ returns BaseVideoStylizer instance for 'art' or 'photo' style transfer on video """
+        from mcapst.stylizers.video_stylizers import BaseVideoStylizer
         if self.config.use_segmentation:
             # TODO: implement a "MaskedVideoStylizer"
             raise NotImplementedError("Segmented video style transfer not yet implemented.")

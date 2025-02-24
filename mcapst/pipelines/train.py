@@ -5,9 +5,8 @@ import torch
 from torch import nn
 from torch.utils.tensorboard import SummaryWriter
 # local imports
-from mcapst.models.CAPVSTNet import CAPVSTNet
 from mcapst.models.VGG import VGG19
-from mcapst.data.datasets import DataManager
+from mcapst.datasets.orchestrator import DataManager
 from mcapst.config.configure import ConfigManager, TrainingConfig
 from mcapst.loss.manager import LossManager
 
@@ -31,7 +30,6 @@ class TrainerBase:
         # TODO: replace with the use of a stylizer class in data.managers later
         #self.transfer_module = CAPVSTNet(max_size=self.config.new_size, train_mode=True)
         self.data_manager = DataManager(self.config.transfer_mode, self.config.data_cfg)
-        #!! FIXME: problem with VGG19 hard-coding I think
         style_encoder: Callable = VGG19(self.config.loss_cfg.vgg_ckpt).to(device=self.device)
         self.loss_manager = LossManager(self.config.loss_cfg, style_encoder=style_encoder)
         # Let child classes define self.model, switch to using the stylizer classes like with BaseImageStylizer, etc.
@@ -97,7 +95,7 @@ class TrainerBase:
 class ImageTrainer(TrainerBase):
     def __init__(self, config: Union[TrainingConfig, Dict[str, Any]]):
         super().__init__(config)
-        from mcapst.data.stylizers import BaseImageStylizer
+        from mcapst.stylizers.image_stylizers import BaseImageStylizer
         # TODO: if I keep using stylizer classes, I'll have to add some staging for choosing this or the MaskedImageStylizer class
         self.transfer_module = BaseImageStylizer(
             mode=self.config.transfer_mode,
@@ -156,7 +154,7 @@ class VideoTrainer(TrainerBase):
         # using the BaseImageStylizer since the original implementation only generated fake optical flow data between unrelated images in a batch
             # eventually, I'll add a new data manager for batching video frames and generating real optical flow data in the same manner as it does now.
         # TODO: if I keep using stylizer classes, I'll have to add some staging for choosing this or the MaskedImageStylizer class
-        from mcapst.data.stylizers import BaseImageStylizer
+        from mcapst.stylizers.image_stylizers import BaseImageStylizer
         self.transfer_module = BaseImageStylizer(
             mode=self.config.transfer_mode,
             ckpt=self.config.ckpt_path,
