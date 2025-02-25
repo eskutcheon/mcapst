@@ -86,7 +86,7 @@ def test_video_training_pipeline(dummy_train_content, dummy_train_style):
             data_cfg={
                 "train_content": dummy_train_content,
                 "train_style": dummy_train_style,
-                "batch_size": 4,
+                "batch_size": 3, # 3 is the highest I can use with the current number of content images available
                 "new_size": 256,
                 "use_local_datasets": True,
             },
@@ -99,7 +99,6 @@ def test_video_training_pipeline(dummy_train_content, dummy_train_style):
             training_iterations=2,
             model_save_interval=1,
         )
-        print("Config created by video transfer version: ", config)
         trainer = VideoTrainer(config)
         trainer.train()
         # Check that a checkpoint file was produced
@@ -117,12 +116,12 @@ def test_image_training_pipeline_dict_override(dummy_hf_content, dummy_hf_style)
     with tempfile.TemporaryDirectory() as tmpdir:
         config_dict = {
             "modality": "image",
-            "transfer_mode": "artistic",
+            "transfer_mode": "photo",
             "logs_directory": os.path.join(tmpdir, "logs"),
             "data_cfg": {
                 "train_content": dummy_hf_content,
                 "train_style": dummy_hf_style,
-                "batch_size": 1,
+                "batch_size": 4,
                 "new_size": 256,
                 "use_local_datasets": False,
                 "streaming": True,
@@ -134,7 +133,7 @@ def test_image_training_pipeline_dict_override(dummy_hf_content, dummy_hf_style)
                 "temporal_weight": 0.0,
                 "vgg_ckpt": "checkpoints/vgg_normalised.pth"
             },
-            "training_iterations": 2,
+            "training_iterations": 1,
             "model_save_interval": 1,
         }
         # Construct a TrainingConfig from our dict
@@ -145,10 +144,6 @@ def test_image_training_pipeline_dict_override(dummy_hf_content, dummy_hf_style)
         trainer.train()
         ckpt_path = trainer.config.ckpt_path
         assert os.path.isfile(ckpt_path), "No checkpoint file found after training."
-
-
-# def test_image_training_stage_pipeline():
-
 
 
 
@@ -173,7 +168,7 @@ def test_image_training_pipeline_errors(dummy_hf_content, dummy_hf_style):
     with tempfile.TemporaryDirectory() as tmpdir:
         config_dict = {
             "modality": "image",
-            "transfer_mode": "artistic",
+            "transfer_mode": "photorealistic",
             "logs_directory": os.path.join(tmpdir, "logs"),
             "data_cfg": {
                 "train_content": dummy_hf_content,

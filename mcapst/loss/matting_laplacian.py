@@ -184,6 +184,8 @@ class MattingLaplacianLoss(nn.Module):
         local_mean, cov = self.compute_local_statistics(patches)
         # Regularize the covariance matrix and invert it.
         laplacian = self.compute_quadratic_term(patches, local_mean, cov) # shape: (B, H' * W', win_size, win_size)
+        del patches, local_mean, cov  # free up memory
+        torch.cuda.empty_cache()  # clear GPU memory
         indices = self.get_coo_indices(img.shape, img.device) # shape: (2, B, H' * W' * win_size**2)
         #return laplacian, indices # REMOVE: using for debugging in comparing device speedup (accumulating error meant I had to use the same `laplacian`)
         # Construct sparse matrices batch-wise
@@ -290,6 +292,8 @@ class MattingLaplacianLoss(nn.Module):
         """
         lap_content = self.postprocess(self.compute_laplacian(content_img, mask=mask))  # Enable gradients for content Laplacian
         if self.objective == "mse":
+            del content_img
+            torch.cuda.empty_cache()
             lap_stylized = self.postprocess(self.compute_laplacian(stylized_img, mask=mask))
             return self.sparse_mse_loss(lap_stylized, lap_content)
         elif self.objective == "sparse":

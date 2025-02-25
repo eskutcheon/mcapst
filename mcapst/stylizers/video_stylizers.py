@@ -30,17 +30,18 @@ class BaseVideoStylizer(BaseStylizer):
                 frames: Tensor of video frames with shape (T, C, H, W).
                 style_paths: Style image template path(s)
         """
-        style_images = []
-        if all(isinstance(p, str) for p in style_paths):
-            print("style paths: ", style_paths)
-            style_images = [self.preprocess(IO.read_image(p, IO.ImageReadMode.RGB).pin_memory()) for p in style_paths]
-        elif all(isinstance(p, torch.Tensor) for p in style_paths):
-            style_images = [self.preprocess(p) for p in style_paths]
-        else:
-            raise ValueError("`style_paths` must be a list of path-like strings or a list of tensors!")
+        style_images = style_paths #[]
+        # if all(isinstance(p, str) for p in style_paths):
+        #     print("style paths: ", style_paths)
+        #     style_images = [self.preprocess(IO.read_image(p, IO.ImageReadMode.RGB).pin_memory()) for p in style_paths]
+        # elif all(isinstance(p, torch.Tensor) for p in style_paths):
+        #     style_images = [self.preprocess(p) for p in style_paths]
+        # else:
+        #     raise ValueError("`style_paths` must be a list of path-like strings or a list of tensors!")
         with torch.no_grad(): # forward inference of self.revnet acts as the feature encoder
             z_c = self.revnet(frames, forward=True)
-            z_s = [self.revnet(img, forward=True) for img in style_images]
+            z_s = self.revnet(style_images, forward=True)
+            #z_s = [self.revnet(img, forward=True) for img in style_images]
         content_feat = FeatureContainer(z_c, "content", alpha_c, cmask, max_size=self.max_size)
         style_feat = FeatureContainer(z_s, "style", alpha_s, smask, max_size=self.max_size)
         # Initialize video writer

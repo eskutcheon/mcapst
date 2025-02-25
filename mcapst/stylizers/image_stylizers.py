@@ -20,43 +20,46 @@ class BaseImageStylizer(BaseStylizer):
     def stylize_from_images(
         self,
         content_img: torch.Tensor,
-        style_paths: List[str],
+        style_paths: torch.Tensor, #Union[List[str], List[torch.Tensor], torch.Tensor],
         alpha_c: StyleWeights,
         alpha_s: StyleWeights,
         # leaving the segmentation mask arguments here so that base classes can pass them to this method
         cmask: Optional[torch.Tensor] = None,
         smask: Optional[List[torch.Tensor]] = None
     ) -> torch.Tensor:
-        style_images = []
-        if all(isinstance(p, str) for p in style_paths):
-            style_images = [self.preprocess(IO.read_image(p, IO.ImageReadMode.RGB).pin_memory()) for p in style_paths]
-        elif isinstance(style_paths, (list, tuple)) and all(isinstance(p, torch.Tensor) for p in style_paths):
-            style_images = [self.preprocess(p) for p in style_paths]
-        elif isinstance(style_paths, torch.Tensor):
-            style_images = [self.preprocess(style_paths)]
-        else:
-            raise ValueError("`style_paths` must be a list of path-like strings or a list of tensors!")
+        #style_images = self.process_style_sources(style_paths) #self.get_style_images(style_paths)
+        style_images = style_paths
+        #print("type and shapes of style images: ", type(style_images), [img.shape for img in style_images])
         with torch.no_grad(): # forward inference of self.revnet acts as the feature encoder
             content_img = self.preprocess(content_img)
             #self._resize(content_img).to(self.device)
             z_c = self.revnet(content_img, forward=True)
-            z_s = [self.revnet(img, forward=True) for img in style_images]
+            #z_s = [self.revnet(img, forward=True) for img in style_images]
+            z_s = self.revnet(style_images, forward=True)
+            #print("style features shapes: ", [z.shape for z in z_s])
         content_feat = FeatureContainer(z_c, "content", alpha_c, mask=cmask, max_size=self.max_size)
         style_feat = FeatureContainer(z_s, "style", alpha_s, mask=smask, max_size=self.max_size)
+        #print("style features in container: ", [f.shape for f in style_feat.features])
         pastiche = self.stylize(content_feat, style_feat)
         del content_feat, style_feat
         return pastiche
 
-    def _postprocess_pastiche(self, pastiche: torch.Tensor):
-        if self.postprocessor:
-            pastiche = self.postprocessor(pastiche)
-        return pastiche.clamp(0, 1)
+    # def get_style_images(self, style_paths: List[str]) -> List[torch.Tensor]:
+    #     """ Loads and preprocesses style images from the provided paths. """
+    #     if all(isinstance(p, str) for p in style_paths):
+    #         return [self.preprocess(IO.read_image(p, IO.ImageReadMode.RGB).pin_memory()) for p in style_paths]
+    #     elif isinstance(style_paths, (list, tuple)) and all(isinstance(p, torch.Tensor) for p in style_paths):
+    #         return [self.preprocess(p) for p in style_paths]
+    #     elif isinstance(style_paths, torch.Tensor):
+    #         return [self.preprocess(style_paths)]
+    #     else:
+    #         raise ValueError("`style_paths` must be a list of path-like strings or a list of tensors!")
 
     @transform_preprocess
     def transform(
         self,
         sample: Union[torch.Tensor, Dict[str, torch.Tensor]],
-        style_paths: Union[str, List[str]],
+        style_paths: Union[str, List[str], torch.Tensor, List[torch.Tensor]],
         alpha_c: Union[float, None],
         alpha_s: Union[float, Iterable[float]],
     ):
@@ -65,10 +68,14 @@ class BaseImageStylizer(BaseStylizer):
         content_img = sample if not isinstance(sample, dict) else sample["img"]
         # NOTE: the decorator turns alpha_c and alpha_s into StyleWeights objects
         pastiche: torch.Tensor = self.stylize_from_images(content_img, style_paths, alpha_c = alpha_c, alpha_s = alpha_s)
-        pastiche = self._postprocess_pastiche(pastiche)
+        if self.postprocessor:
+            pastiche = self.postprocessor(pastiche)
+        pastiche = pastiche.clamp(0,1)
+        # TODO: remove this in favor of expecting only tensors while using intermediate layers to deal with dictionaries - mostly kept like this for mask support anyway
         if isinstance(sample, dict):
             sample["img"] = pastiche
         return pastiche
+
 
 
 class MaskedImageStylizer(BaseImageStylizer):
@@ -90,6 +97,7 @@ class MaskedImageStylizer(BaseImageStylizer):
                 postprocessor (Optional[Callable]): Callable for post-processing stylized outputs.
                 reg_method (str): Regularization method.
         """
+        raise NotImplementedError("Not tested and confirmed working yet; also needs refactoring for strictly handling style tensors")
         super().__init__(mode, ckpt, max_size, postprocessor, reg_method)
         self.segmentation_model = self._initialize_segmentation_model(seg_model_ckpt)
 
@@ -157,7 +165,9 @@ class MaskedImageStylizer(BaseImageStylizer):
             cmask = self.generate_content_mask(content_img)
         smask = self.load_multi_style_masks(mask_paths) if use_segmentation and mask_paths else None
         pastiche = self.stylize_from_images(content_img, style_paths=style_paths, alpha_c=alpha_c, alpha_s=alpha_s, cmask=cmask, smask=smask)
-        pastiche = self._postprocess_pastiche(pastiche)
+        if self.postprocessor:
+            pastiche = self.postprocessor(pastiche)
+        pastiche = pastiche.clamp(0,1)
         if isinstance(sample, dict):
             sample["img"] = pastiche
         return pastiche

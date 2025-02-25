@@ -121,7 +121,6 @@ class ImageTrainer(TrainerBase):
             content_batch, style_batch = self.data_manager.get_next_batches()
             content_batch = content_batch["img"].to(self.device)
             style_batch = style_batch["img"].to(self.device)
-            print("style_batch shape: ", style_batch.shape)
             # Forward pass
             stylized_batch = self.transfer_module.transform(content_batch, [style_batch], alpha_c = alpha_c, alpha_s = alpha_s)
             losses = self.loss_manager.compute_losses(content_batch, style_batch, stylized_batch) #, laplacian_list)
@@ -188,7 +187,7 @@ class VideoTrainer(TrainerBase):
             # Forward pass
             stylized_batch = self.transfer_module.transform(content_batch, [style_batch], alpha_c = alpha_c, alpha_s = alpha_s)
             temp_stylizer_callback = lambda x: self.transfer_module.transform(x, [style_batch], alpha_c = alpha_c, alpha_s = alpha_s)
-            losses = self.loss_manager.compute_losses(content_batch, style_batch, stylized_batch, stylizer_callback=temp_stylizer_callback) #, laplacian_list)
+            losses = self.loss_manager.compute_losses(content_batch, style_batch, stylized_batch, stylizer_callback=temp_stylizer_callback)
             # Backward and optimize
             total_loss = losses["total"]
             self.optimizer.zero_grad()

@@ -1,10 +1,11 @@
 import os
 from glob import glob
 from typing import Dict, Union, Optional, Literal, Any, Callable, List
-from itertools import cycle
+import random
 from PIL.Image import Image
 import torch
-#from torchvision import datasets as tv_datasets
+from torch.utils.data import IterableDataset
+import datasets # huggingface datasets
 import torchvision.transforms.v2 as TT
 import torchvision.io as IO
 #from torch.utils.data.dataset import Dataset
@@ -16,13 +17,13 @@ ALLOWED_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff"}
 
 class BaseImageDataset(Dataset):
     """ Base class for both HuggingFace and local image datasets that includes the optional Matting Laplacian computation """
-    def __init__(self, transform: Optional[Callable] = None): #, use_lap=True, win_rad=1):
+    def __init__(self, transform: Optional[Callable] = None):
         super().__init__()
+        DEFAULT_RESIZE_DIM = 256
         self.transform = transform if transform else TT.Compose([
             # TT.ToPureTensor(),
             TT.Lambda(lambda x: TT.functional.pil_to_tensor(x) if isinstance(x, Image) else x),
-            # TODO: remove hard-coding and read from a config or arguments from the caller
-            TT.Resize((256, 256)),
+            TT.Resize((DEFAULT_RESIZE_DIM, DEFAULT_RESIZE_DIM)),
             TT.ToDtype(torch.float32, scale=True),
         ])
 
@@ -39,7 +40,6 @@ class LocalImageDataset(BaseImageDataset):
         super().__init__(transform)
         self.root = root
         self._scan_files(root, recursive)  # Scan the directory for image files
-
 
     def _scan_files(self, root, recursive):
         """ Scans the directory for image files and populates self.files """
@@ -61,3 +61,114 @@ class LocalImageDataset(BaseImageDataset):
         img = self.transform(IO.read_image(img_path, mode=IO.ImageReadMode.RGB))
         # TODO: add content mask support
         return {"img": img}
+
+
+
+class HFImageDataset(BaseImageDataset):
+    """ HuggingFace dataset class for loading images from a specified dataset name and split """
+    #!! TODO: remember to remove the hardcoding on split="train[:1%]" when testing with the full dataset
+    def __init__(self, dataset_name, split="train[:1%]", transform: Optional[Callable] = None):
+        super().__init__(transform) #, use_lap, win_rad)
+        # TODO: should really explore more of the options in datasets.load_dataset() to optimize loading
+        self.dataset = datasets.load_dataset(dataset_name, split=split)
+        # streaming=True used together with .with_format("torch") doesn't work quite right
+        self.dataset = self.dataset.with_format("torch")
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, idx):
+        image = self.dataset[idx]["image"]
+        if self.transform:
+            image = self.transform(image)
+        # TODO: add content mask support
+        return {"img": image}
+
+
+# REFERENCE LATER: https://medium.com/@amit25173/how-to-use-dataloader-with-iterabledataset-in-pytorch-an-advanced-practical-guide-898a49ace81c
+
+class HFStreamingIterable(IterableDataset):
+    """ IterableDataset that loads images from a streaming HuggingFace dataset.
+        Optionally shuffles incoming data using a small buffer (inspired by TFRecord-like shuffling).
+        :param dataset_name: e.g. "huggan/wikiart"
+        :param split: e.g. "train" or "validation" or "train[:1%]"
+        :param transform: optional torchvision-style transform to apply to each image
+        :param buffer_size: if >0, do reservoir-like shuffle with that buffer size
+    """
+    def __init__(
+        self,
+        dataset_name: str,
+        split: str = "train",
+        transform: Optional[Callable] = None,
+        buffer_size: int = 0
+    ):
+        super().__init__()
+        self.dataset_name = dataset_name
+        self.split = split
+        self.buffer_size = buffer_size
+        self._set_transforms(transform)
+        # avoiding using .with_format("torch") like the other classes because streaming + with_format has issues
+        self.raw_dataset = datasets.load_dataset(self.dataset_name, split=self.split, streaming=True)
+
+    def _set_transforms(self, transform: TT.Compose = None):
+        DEFAULT_SIZE = 256
+        conversion_func = TT.Lambda(lambda x: TT.functional.pil_to_tensor(x) if isinstance(x, Image) else x)
+        if transform:
+            transform.transforms.insert(0, conversion_func)
+            self.transform = transform
+        else:
+            self.transform = transform if transform else TT.Compose([
+                conversion_func,
+                TT.Resize((DEFAULT_SIZE, DEFAULT_SIZE)),
+                TT.ToDtype(torch.float32, scale=True),
+            ])
+
+    def _shuffle_generator(self, iterator):
+        """ Expects an iterator of (image) items, and uses a generator with pseudo-random ordering using a small in-memory buffer """
+        buffer = []
+        for x in iterator:
+            if len(buffer) < self.buffer_size:
+                buffer.append(x)
+            else:
+                # random index in [0, buffer_size)
+                idx = random.randint(0, self.buffer_size-1)
+                # yield one from the buffer
+                yield buffer[idx]
+                # replace it with the new item
+                buffer[idx] = x
+        # once we exhaust the iterator, yield all remaining in random order
+        random.shuffle(buffer)
+        for x in buffer:
+            yield x
+
+    def __iter__(self):
+        # self.raw_dataset is an iterator itself
+        base_iter = iter(self.raw_dataset)  # yields dict with "image", "label", etc.
+        # If we want to shuffle, wrap base_iter with a shuffle generator
+        sample_iter = self._shuffle_generator(base_iter) if self.buffer_size > 0 else base_iter
+        # Finally yield each item
+        for sample in sample_iter:
+            # apply transforms to image from the iterator item
+            img = self.transform(sample["image"])
+            yield {"img": img}
+
+    def __len__(self):
+        # We do not know the length of a streaming dataset
+        raise TypeError("HFStreamingIterable has no length (infinite or unknown).")
+
+
+
+
+def test_if_valid_hf_dataset(name: str) -> bool:
+    """ checks if the provided dataset name is valid and accessible on HuggingFace """
+    from urllib.request import urlopen
+    from urllib.error import HTTPError
+    try:
+        # NOTE: should maybe be f"https://huggingface.co/datasets/{name}/blob/main/README.md"
+        url = f"https://huggingface.co/datasets/{name}/resolve/main/README.md"
+        response = urlopen(url)
+        # return whether the HTTP 200 OK status code was returned by the server
+        return response.status == 200
+    except HTTPError as e:
+        print(f"Error accessing dataset {name}: {e}")
+        return False

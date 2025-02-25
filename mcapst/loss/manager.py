@@ -47,14 +47,12 @@ class LossManager:
         # Toggle gradient computation for content and stylized images and mask if provided
         self._toggle_grad(content_img, stylized_img, mask)
         reconstruction_loss = self._compute_reconstruction_loss(content_img, stylized_img, self.rec_weight)
-        laplacian_loss = self._compute_laplacian_loss(content_img, stylized_img, mask, self.lap_weight) #, laplacian_list)
         temporal_loss = self._compute_temporal_loss(content_img, stylized_img, self.temporal_weight, stylizer_callback)
+        del stylizer_callback, style_img  # free up memory
+        torch.cuda.empty_cache()  # clear GPU memory
+        laplacian_loss = self._compute_laplacian_loss(content_img, stylized_img, mask, self.lap_weight)
         # dynamically construct the losses dictionary from __local__ variables, removing `_loss` suffix from keys
         losses = {key.replace("_loss", ""): value for key, value in locals().items() if key.endswith("_loss")}
-        # for key, loss in losses.items():
-        #     if not isinstance(loss, torch.Tensor):
-        #         raise ValueError(f"Loss value {loss} is not a tensor.")
-        #     print(f"{key} loss gradients: ", loss.requires_grad)
         # Total Loss - Ensure summation does not break autograd tracking
         losses["total"] = sum(losses.values())
         return losses
@@ -73,10 +71,6 @@ class LossManager:
     def _compute_content_style_loss(self, content_img, style_img, stylized_img, cweight=1.0, sweight=1.0):
         """ Computes both content and style losses using the style encoder. """
         # NOTE: content_weight is only passed here so that the encoder avoids computing the content loss if content_weight == 0 (from original authors)
-        print("==COMPUTING STYLE AND CONTENT LOSS==")
-        print("content_img.shape: ", content_img.shape)
-        print("style_img.shape: ", style_img.shape)
-        print("stylized_img.shape: ", stylized_img.shape)
         # TODO: inputs might absolutely have to have shape [256,256] since the VGG19 model is trained on 256x256 images
         closs, sloss =  self.style_encoder(content_img, style_img, stylized_img, n_layer=4, content_weight=self.content_weight)
         return cweight * closs, sweight * sloss

@@ -114,23 +114,19 @@ class VGG19(nn.Module):
         assert not target.requires_grad, "target should not require gradients"
         input_mean, input_std = calc_mean_std(input)
         target_mean, target_std = calc_mean_std(target)
+        assert input_mean.size() == target_mean.size(), f"input mean size {input_mean.size()} not equal to target mean size {target_mean.size()}"
+        assert input_std.size() == target_std.size(), f"input std size {input_std.size()} not equal to target std size {target_std.size()}"
         return self.mse_loss(input_mean, target_mean) + self.mse_loss(input_std, target_std)
 
     def forward(self, content_images, style_images, stylized_images, n_layer=4, content_weight=0):
         style_feats = self.encode_with_intermediate(style_images, n_layer)
         stylized_feats = self.encode_with_intermediate(stylized_images, n_layer)
-        print("style_feats shape: ", [f.shape for f in style_feats])
-        print("stylized_feats shape: ", [f.shape for f in stylized_feats])
         # content loss
         loss_c = 0
         if content_weight > 0:
             content_feat = self.encode(content_images)
-            print("content_feat shape: ", content_feat.shape)
             loss_c = self.calc_content_loss(stylized_feats[3], content_feat)    # relu4_1
         # style loss
-        # print("==CALCULATING STYLE LOSS==")
-        # print("stylized_feats[0].shape: ", stylized_feats[0].shape)
-        # print("style_feats[0].shape: ", style_feats[0].shape)
         loss_s = self.calc_style_loss(stylized_feats[0], style_feats[0])
         for i in range(1, n_layer):
             loss_s += self.calc_style_loss(stylized_feats[i], style_feats[i])

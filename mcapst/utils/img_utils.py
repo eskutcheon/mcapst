@@ -49,9 +49,8 @@ def resize_to_batch_tensor(tensor_list, max_size, interp_mode=TT.InterpolationMo
 
 def iterable_to_tensor(tensor_list: Union[torch.Tensor, Iterable[torch.Tensor]], max_resize: int = 512, is_mask: bool = False,):
     # ? NOTE: think I might really just need to deal with lists of tensors since I might be royally screwing up outcomes based on shapes
-    interp_mode = (TT.InterpolationMode.NEAREST if is_mask else TT.InterpolationMode.BICUBIC)
+    interp_mode = TT.InterpolationMode.NEAREST if is_mask else TT.InterpolationMode.BICUBIC
     if not issubclass(type(tensor_list), torch.Tensor):
-        # print(f"type of input tensor_list: {type(tensor_list)}")
         tensor_list = resize_to_batch_tensor(tensor_list, max_resize, interp_mode)
         # ? NOTE: just assuming they'll all have the same shape, but I'm checking them all rather than just the first element anyway
         collate_fn: Callable = torch.cat if all([len(A.shape) == 4 for A in tensor_list]) else torch.stack
@@ -59,6 +58,7 @@ def iterable_to_tensor(tensor_list: Union[torch.Tensor, Iterable[torch.Tensor]],
             return ensure_batch_tensor(collate_fn(tensor_list, dim=0))
         except:
             dims_list = [list(tensor.shape) for tensor in tensor_list]
+            # something went wrong if this runs, because this is just a redundant check after running resize_to_batch_tensor
             raise RuntimeError("The list of tensors to concatenate must have the same dimensions! Got shapes ", dims_list)
     else:
         return ensure_batch_tensor(tensor_list)

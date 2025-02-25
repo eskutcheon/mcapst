@@ -43,8 +43,6 @@ class StyleWeights:
             self.weights = self._default_weights()
             self.num_items = len(self.weights)
         # ensure weights are valid numeric types in [0,1]
-        # for w in self.weights:
-        #     print(f"type of {w}: {type(w)}")
         if not all(isinstance(w, (int, float)) and 0 <= w <= 1 for w in self.weights):
             raise ValueError(f"All weights must be floats in the range [0, 1]; got {self.weights} with types {[type(w) for w in self.weights]}")
 
@@ -76,9 +74,6 @@ class StyleWeights:
 
     def __repr__(self):
         return f"StyleWeight(weights={self.weights}, weight_type={self.weight_type}, num_items={self.num_items})"
-
-
-
 
 
 
@@ -117,14 +112,13 @@ class FeatureContainer(object):
         use_double=True,
         max_size=1280,
     ):
-        self.feat: torch.Tensor = iterable_to_tensor(features, max_size, is_mask=False)
+        self.feat: torch.Tensor = iterable_to_tensor(features, max_size, is_mask=False) if isinstance(features, list) else features
         # print(f"{feature_type} feature range after `iterable_to_tensor`: {self.feat.min(), self.feat.max()}")
         self.batch_size = self.feat.shape[0]
         self.feat_type: str = feature_type
         self.feat_shape_init: torch.Size = self.feat.shape
         self.feat_dtype_init: torch.dtype = self.feat.dtype
         # ? NOTE: should maybe move this to the FeatureFusionModule; I was thinking of doing the same for alpha_c, but I feel like I probably shouldn't
-        #self.set_alpha_value(alpha)
         self.alpha: StyleWeights = alpha
         # ? NOTE: may end up moving this as well to enfore mask consistency with the feature tensors
         if mask is not None:
