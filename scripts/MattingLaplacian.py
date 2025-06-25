@@ -16,7 +16,7 @@ def save_win_inds(win_inds, filename="win_inds.pt"):
     win_inds_tensor = torch.from_numpy(win_inds)
     # Save using PyTorch format
     torch.save(win_inds_tensor.unsqueeze(0), filename)
-    print(f"✅ Saved win_inds to {filename}")
+    print(f"[X] Saved win_inds to {filename}")
 
 
 

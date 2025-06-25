@@ -58,7 +58,7 @@ def build_vgg():
         nn.MaxPool2d((2, 2), (2, 2), (0, 0), ceil_mode=True),
         nn.ReflectionPad2d((1, 1, 1, 1)),
         nn.Conv2d(512, 512, (3, 3)),
-        nn.ReLU(),  # relu5-1, this is the last layer used
+        nn.ReLU(),  # relu5-1 (last layer used)
         nn.ReflectionPad2d((1, 1, 1, 1)),
         nn.Conv2d(512, 512, (3, 3)),
         nn.ReLU(),  # relu5-2
@@ -78,8 +78,8 @@ class VGG19(nn.Module):
         vgg = build_vgg()
         vgg.load_state_dict(torch.load(checkpoint, weights_only=True))
         vgg_layers = list(vgg.children())
-        self.enc_1 = nn.Sequential(*vgg_layers[:4])  # input -> relu1_1
-        self.enc_2 = nn.Sequential(*vgg_layers[4:11])  # relu1_1 -> relu2_1
+        self.enc_1 = nn.Sequential(*vgg_layers[:4])     # input -> relu1_1
+        self.enc_2 = nn.Sequential(*vgg_layers[4:11])   # relu1_1 -> relu2_1
         self.enc_3 = nn.Sequential(*vgg_layers[11:18])  # relu2_1 -> relu3_1
         self.enc_4 = nn.Sequential(*vgg_layers[18:31])  # relu3_1 -> relu4_1
         self.enc_5 = nn.Sequential(*vgg_layers[31:45])  # relu4_1 -> relu5_1
@@ -110,12 +110,10 @@ class VGG19(nn.Module):
         return self.mse_loss(input, target)
 
     def calc_style_loss(self, input, target):
-        # assert (input.size() == target.size())
+        assert (input.size() == target.size()), f"input size {input.size()} not equal to target size {target.size()}"
         assert not target.requires_grad, "target should not require gradients"
         input_mean, input_std = calc_mean_std(input)
         target_mean, target_std = calc_mean_std(target)
-        assert input_mean.size() == target_mean.size(), f"input mean size {input_mean.size()} not equal to target mean size {target_mean.size()}"
-        assert input_std.size() == target_std.size(), f"input std size {input_std.size()} not equal to target std size {target_std.size()}"
         return self.mse_loss(input_mean, target_mean) + self.mse_loss(input_std, target_std)
 
     def forward(self, content_images, style_images, stylized_images, n_layer=4, content_weight=0):

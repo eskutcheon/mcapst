@@ -9,7 +9,7 @@ from numpy.linalg import inv
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 #from mcapst.training.losses import MattingLaplacianLoss  # Ensure this is the latest PyTorch implementation
 from mcapst.loss.matting_laplacian import MattingLaplacianLoss
-from mcapst.utils.MattingLaplacian import compute_laplacian, get_local_statistics  # Ensure this is the original NumPy implementation
+from scripts.MattingLaplacian import compute_laplacian, get_local_statistics  # Ensure this is the original NumPy implementation
 
 # Paths to test images (Update these to match your actual test images)
 IMAGE_PATHS = [

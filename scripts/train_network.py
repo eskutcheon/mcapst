@@ -1,3 +1,6 @@
+
+raise DeprecationWarning("This script is deprecated. Please use the new module entry points instead.")
+
 import argparse
 import os
 import torch
@@ -107,7 +110,7 @@ if args.resume:
 # Loss
 l1_loss = torch.nn.L1Loss()
 if args.temporal_weight > 0:
-    from mcapst.utils.TemporalLoss import TemporalLoss
+    from scripts.TemporalLoss import TemporalLoss
     Temporal_loss = TemporalLoss()
 
 

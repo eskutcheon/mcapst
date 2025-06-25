@@ -1,3 +1,7 @@
+
+
+raise DeprecationWarning("This script is deprecated. Please use the new module entry points instead.")
+
 import argparse
 import os
 import torch

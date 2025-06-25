@@ -175,16 +175,17 @@ class ConfigManager:
             self._load_yaml_config(config_path)
         self._parse_cli_args()
         # After we have merged YAML + CLI, the dataclass’s __post_init__() runs
-        # automatically in the constructor. If we need to re-trigger it, do so:
+            # automatically in the constructor. If we need to re-trigger it, do so:
         # (In Python 3.10+ you can do dataclasses.replace(...) to re-run post_init.)
-        # But typically it runs automatically if we pass them in the constructor from scratch.
-        # So let's do it manually:
+            # But typically it runs automatically if we pass them in the constructor from scratch.
+            # So let's do it manually:
         self._rerun_post_init()
 
     def _load_yaml_config(self, config_path: str):
-        """Loads settings from a YAML configuration file and updates defaults."""
+        """ Loads settings from a YAML configuration file and updates defaults """
         with open(config_path, "r") as file:
             yaml_config = yaml.safe_load(file)
+        # merge YAML config into the current config object
         for key, value in yaml_config.items():
             if hasattr(self.config, key):
                 setattr(self.config, key, value)
@@ -192,10 +193,15 @@ class ConfigManager:
                 print(f"WARNING: Unrecognized config key: {key}")
 
     def _parse_cli_args(self):
-        """ Parses command-line arguments and updates configuration settings dynamically """
+        """ Build an ArgumentParser dynamically from fields in the dataclass, then optionally override from CLI. """
         parser = argparse.ArgumentParser(description=f"Configuration for {self.mode} mode")
-        # Extract all fields from the current config class
-        config_class = CONFIG_REGISTRY[self.mode]
+        # config_cls = CONFIG_REGISTRY[self.mode]
+        # might handle nested configs by flattening.
+        # e.g., if self.config is a TrainingConfig, it has data_cfg (DatasetConfig) and loss_cfg (LossConfig).
+        # could do a recursion or manual approach like
+            #  - parse top-level fields in the config
+            #  - parse fields in data_cfg if present
+            #  - parse fields in loss_cfg if present
         # Example function to add arguments for a single dataclass instance
         def add_dataclass_args(dc_instance, prefix=""):
             for fobj in fields(dc_instance):
@@ -212,7 +218,7 @@ class ConfigManager:
                     parser.add_argument(cli_flag, action="store_true", help=help_msg)
                 else:
                     parser.add_argument(cli_flag, type=str, help=help_msg)
-        # add arguments for top-level config
+        # first, add arguments for top-level config
         add_dataclass_args(self.config, prefix="")
         # if training or inference has nested dataclasses, parse them
         if isinstance(self.config, TrainingConfig):
@@ -235,17 +241,12 @@ class ConfigManager:
                     if raw_val is not None:
                         cast_val = self._cast_value(fobj.type, raw_val)
                         setattr(dc_instance, field_name, cast_val)
-
+        # apply CLI overrides to the top-level config
         apply_overrides(self.config, args, prefix="")
         if isinstance(self.config, TrainingConfig):
             apply_overrides(self.config.data_cfg, args, prefix="data_cfg.")
             apply_overrides(self.config.loss_cfg, args, prefix="loss_cfg.")
 
-        # args, unknown = parser.parse_known_args()
-        # # Apply CLI overrides
-        # for key, value in vars(args).items():
-        #     if value is not None and hasattr(self.config, key):
-        #         setattr(self.config, key, value)
 
     def _cast_value(self, field_type, raw_val):
         """ helper function to cast raw strings from CLI to the correct type if needed
@@ -263,7 +264,7 @@ class ConfigManager:
         elif field_type == str:
             return str(raw_val)
         elif origin_type == Union:
-            # We have Union type => pick the first that doesn't fail
+            # Union type => pick the first that doesn't fail
             for t in field_type.__args__:
                 if t == type(None):
                     continue
