@@ -122,7 +122,7 @@ if args.auto_seg:
     style_seg = inference_segmentor(seg_model, style_BGR)[0]
     # -----------------------------
     # Post-processing segmentation results
-    from models.segmentation.SegReMapping import SegReMapping
+    from scripts.SegReMapping import SegReMapping
     label_remapping = SegReMapping(args.label_mapping, min_ratio=args.min_ratio)
     style_seg = label_remapping.self_remapping(style_seg)
     style_seg = np.asarray(style_seg).astype(np.uint8)

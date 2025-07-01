@@ -65,7 +65,10 @@ def get_local_statistics(img: np.ndarray, mask: Optional[np.ndarray] = None, win
     # compute the mean of each patch
     win_mu = np.mean(winI, axis=1, keepdims=True)         # Shape: (num_windows, 1, d)
     # compute the covariance matrix of each patch (Shape: (num_windows, d, d))
-    patch_sq_sum = np.einsum('...ij,...ik->...jk', winI, winI) / win_size
+    #! this was previously `'...ji,...jk ->...ik'` before I reorganized things for testing
+    #patch_sq_sum = np.einsum('...ij,...ik->...jk', winI, winI) / win_size
+    #! didn't make a difference to the underlying problem apparently
+    patch_sq_sum = np.einsum('...ji,...jk ->...ik', winI, winI) / win_size
     mean_sq = np.einsum('...ji,...jk ->...ik', win_mu, win_mu)
     win_var = patch_sq_sum - mean_sq
     return win_mu, win_var, winI, win_inds
@@ -89,7 +92,8 @@ def compute_laplacian(img: Union[str, np.ndarray], mask: Optional[np.ndarray] = 
     else:
         img = np.asarray(img)
     # normalize image to range [0, 1]
-    #img = 1.0 * img / 255.0
+    if img.max() > 1.0:
+        img = 1.0 * img / 255.0
     win_diam = win_rad * 2 + 1  # diameter of the window
     win_size = win_diam ** 2    # number of pixels in the window / window area
     h, w, d = img.shape         # height, width, depth of the image
@@ -128,7 +132,7 @@ def laplacian_loss_grad(image, M):
     """
     laplacian_m = M
     img = image
-    channel, height, width = img.size()
+    channel, height, width = img.shape
     loss = 0
     grads = list()
     for i in range(channel):

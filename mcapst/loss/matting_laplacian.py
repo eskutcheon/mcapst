@@ -1,64 +1,90 @@
 
-""" will be moving the temporal loss and Matting Laplacian loss to this file while refactoring to use pure pytorch """
-
-from typing import Dict, Union, Literal
+from typing import Dict, Union, Literal, List, Optional, Sequence
+from collections import OrderedDict
 import torch
-import torch.nn as nn
+import torch.nn.functional as F
 
 
-def compare_tensor_with_benchmark(target, filename, exact = True, rtol=1e-3, atol=1e-5, names = ["src", "tgt"]):
-    """ Loads saved tensor from NumPy implementation and compares with PyTorch target tensor.
-        Args:
-            target (torch.Tensor): Extracted indices from PyTorch.
-            filename (str): Path to saved NumPy-based `source.pt`.
-    """
-    # Load the saved indices
-    source = torch.load(filename, weights_only=True)
-    # Ensure shapes match
-    if source.shape != target.shape:
-        print(f"❌ Shape Mismatch: {names[0]} {source.shape}, {names[1]} {target.shape}")
-        return False
-    # Check if values match
-    if exact:
-        if torch.equal(source, target):
-            print(f"✅ {names[1]} matches {names[0]}!")
-        else:
-            print(f"❌ {names[1]} does NOT match {names[0]}!")
-    else:
-        if torch.allclose(source, target, rtol=rtol, atol=atol):
-            print(f"✅ {names[1]} is close to {names[0]}!")
-        else:
-            print(f"❌ {names[1]} is NOT close to {names[0]}!")
+def _construct_final_L(indices_b: torch.Tensor, vals_b: torch.Tensor, N: int, win_units: int, mask: torch.Tensor=None):
+    # indices_b: (2, nnz), vals_b: (nnz,)
+    # optionally drop all windows that lie entirely outside the mask
+    if mask is not None:
+        # window_mask[b] is shape (N,), so repeat each element win_size**2 times
+        keep = mask.repeat_interleave(win_units)
+        vals_b = vals_b[keep]
+        indices_b = indices_b[:, keep]
+    # compute sparse matrix L for the current batch element
+    L = torch.sparse_coo_tensor(indices_b, vals_b, size=(N, N), device=vals_b.device)
+    # compute the Kronecker delta correction D = Diag(sum_L)
+    sum_L = torch.sparse.sum(L, dim=1).to_dense() # shape (N,)
+    D = torch.sparse_coo_tensor(
+        torch.arange(N, device=L.device).unsqueeze(0).repeat(2, 1),
+        sum_L, size=(N, N), device=vals_b.device)
+    # return final Laplacian from (Eq. 12)
+    return D - L
 
 
 #^ MattingLaplacian code formerly in mcapst/utils/MattingLaplacian.py
-class MattingLaplacianLoss(nn.Module):
-    def __init__(self, eps=1e-7, win_rad=1, objective: Literal["mse", "sparse", "dense"] = "mse"):
+class MattingLaplacianLoss(torch.nn.Module):
+    def __init__(self, eps=1e-7, win_rad=1, objective: Literal["sparse", "dense"] = "sparse"):
         super(MattingLaplacianLoss, self).__init__()
         self.eps = eps
         self.win_radius = win_rad
-        self.win_size = (win_rad * 2 + 1) ** 2
-        if objective not in ["mse", "sparse", "dense"]:
+        #! original implementation requiresd that window diameter == C, possibly unintentionally - thus we assume eye(C) == eye(win_diam)
+        self.win_diam = win_rad * 2 + 1
+        self.win_size = self.win_diam ** 2
+        #self.ident = torch.eye(self.win_diam) #.view(1, 1, self.win_diam, self.win_diam)
+        # identity matrix saved to a module buffer for normalizing the covariance matrix and solving for its inverse
+        self.register_buffer("ident", torch.eye(self.win_diam), persistent=False)
+        # hook to clamp only laplacian gradients to the range [-0.05, 0.05] as in the original implementation
+        #self.register_full_backward_hook(self._clamp_laplacian_grad)
+        # self.win_ident = torch.eye(self.win_size).view(1, 1, self.win_size, self.win_size)
+        # self.register_buffer("win_ident", torch.eye(self.win_size).view(1, 1, self.win_size, self.win_size), persistent=False)
+        # add index cache for the COO indices of the sparse matrix into the _IndexCache submodule (MLL is still stateless except for this)
+        self._cache = _IndexCache(self.win_diam) #? NOTE: submodule should be automatically registered in the ModuleDict of the parent class
+        # TODO: consider removing the `objective` parameter and always handling sparse matrices; there's really no benefit to dense matrices
+        if objective not in ["sparse", "dense"]:
             raise ValueError(f"Unsupported objective: {objective}")
         self.objective = objective
 
-    def extract_patches(self, img):
+
+    def _compute_window_mask(self, mask: torch.Tensor) -> torch.BoolTensor:
+        """ compute a mask for which patches overlap the input mask (after a dilation)
+            Args:
+                mask: (B, 1, H, W) or (B, H, W) boolean mask
+            Returns
+                (B, N) boolean tensor
+        """
+        # ensure mask has shape (B, 1, H, W)
+        if mask.dim()==3:
+            mask = mask.unsqueeze(1)
+        # binary dilation over each window so that any patch touching a True gets marked
+        dilated = F.max_pool2d(mask.float(), kernel_size=self.win_diam, stride=1, padding=self.win_radius) # (B,1,H,W)
+        dilated = dilated > 0.5
+        # extract patch‐blocks of the dilated mask
+        m_patches = dilated.unfold(2, self.win_diam, 1).unfold(3, self.win_diam, 1) # shape (B, 1, win_d, win_d, H', W')
+        # flatten each (win_d, win_d) patch and ask if any True
+        m_patches = m_patches.reshape(mask.shape[0], 1, self.win_size, -1) # shape (B, 1, win_size, N)
+        return m_patches.any(dim=2).squeeze(1)  # shape (B, N)
+
+
+    def _extract_patches(self, img: torch.Tensor) -> torch.Tensor:
         """ Extracts local patches using explicit indexing instead of F.unfold with padding.
             Args:
                 img (Tensor): Input image tensor of shape (B, C, H, W).
             Returns:
                 patches (Tensor): Extracted patches of shape (B, C, win_size, H' = H-2*win_rad, W' = W-2*win_rad).
         """
-        win_diam = self.win_radius * 2 + 1  # Window diameter
         # Apply unfold on height and width separately (removing extra padding)
-        patches = img.unfold(2, win_diam, 1).unfold(3, win_diam, 1)
+        patches = img.unfold(2, self.win_diam, 1).unfold(3, self.win_diam, 1)
         # Reshape correctly to match NumPy's `_rolling_block()` output
         patches = patches.contiguous().permute(0, 1, 4, 5, 2, 3)  # (B, C, win_diam, win_diam, H', W')
         #patches = patches.reshape(B, C, H'*W', self.win_size).permute(0, 1, 3, 2)
         return patches  # Shape: (B, C, win_diam, H', W')
 
 
-    def compute_local_statistics(self, patches):
+
+    def compute_local_statistics(self, patches: torch.Tensor):
         """ Computes local mean and covariance for each spatial location.
             Args:
                 img (Tensor): Input image tensor of shape (B, C, H, W).
@@ -67,106 +93,101 @@ class MattingLaplacianLoss(nn.Module):
                 local_mean (Tensor): Local mean tensor of shape (B, C, 1, H', W').
                 cov (Tensor): Local covariance tensor of shape (B, C, C, H', W').
         """
-        # Compute local mean
+        # compute local mean per channel
         local_mean = patches.mean(dim=(2,3), keepdim=True).squeeze(2)  # (B, C, 1, H', W')
-        # Compute covariance: E[X X^T] - E[X]E[X]^T
-        # TODO: rewrite Einstein summation to go ahead and reshape patches earlier (avoids permutation of `diff` in compute_quadratic term later)
+        # TODO: rewrite Einstein summation to go ahead and reshape patches earlier
+        # compute per-pixel E[X X^T]
         patch_sq_sum = torch.einsum('... i m n h w, ... j m n h w -> ... i j h w', patches, patches) / self.win_size # shape: (B, C, win_diam, H' W')
+        # compute outer product of local mean: E[X]E[X]^T
         mean_sq = torch.einsum('... i k h w, ... j k h w -> ... i j h w', local_mean, local_mean) # shape: (B, C, win_diam, H', W')
+        # compute covariance: E[X X^T] - E[X]E[X]^T
         cov = patch_sq_sum - mean_sq  # shape: (B, C, win_diam, H', W')
+        del patch_sq_sum, mean_sq  # free up memory
         return local_mean, cov
 
 
-    def compute_quadratic_term(self, patches, local_mean, cov):
+    def compute_quadratic_term(self, patches: torch.Tensor, local_mean: torch.Tensor, cov: torch.Tensor) -> torch.Tensor:
+        """ Computes the quadratic term for each pixel based on local statistics within each window in patches
+            Args:
+                patches:    Tensor (B, C, win_size, N)
+                local_mean: Tensor (B, C, 1, N)
+                cov:        Tensor (B, C, C, N)
+            Returns:
+                Tensor (B, N, win_size, win_size)
+        """
+        # # first, ensure identity matrix is on the correct device
+        # if self.ident.device != patches.device: # might add this to the preprocessor function later (or insist the whole module be on the same device)
+        #     self.ident = self.ident.to(patches.device)
         B, C = patches.shape[:2]
         patches = patches.reshape(B, C, self.win_size, -1)  # Shape: (B, C, win_size, H' * W')
-        # Regularize the covariance matrix and invert it.
+        # regularize the covariance matrix and invert it
         # !!! requires that win_diam == C but there's no way around it without compromising the whole algorithm
         cov = cov.flatten(start_dim=-2).permute(0, 3, 2, 1)  # Shape: (B, C, win_diam, H' * W') -> (B, H' * W', win_diam, C)
-        cov += (self.eps / self.win_size) * torch.eye(C, device=cov.device)  # Shape: # (B, H' * W', win_diam, C)
-        #inv_cov = torch.linalg.inv(cov.double()).float() # (B, H' * W', win_diam, C)
+        cov += (self.eps / self.win_size) * self.ident  # Shape: # (B, H' * W', win_diam, C)
         # more numerically stable matrix inversion:
-        inv_cov = torch.linalg.solve(cov.double(), torch.eye(cov.shape[-1], device=cov.device).double()).float()
-        # Compute the difference between image pixels and the local mean.
+        inv_cov = torch.linalg.solve(cov, self.ident).float() # shape (B, H' * W', C (or win_diam), C)
+        # compute the difference between image pixels and the local mean.
         local_mean = local_mean.flatten(start_dim=-2)  # Shape: (B, C, 1, H' * W')
         diff = patches - local_mean # shape: (B, C, win_size, H' * W')
-        # Compute the quadratic form for each pixel: diff.T * inv_cov * diff to yield a scalar per spatial location.
+        # compute the quadratic form for each pixel: diff.T * inv_cov * diff to yield a scalar per spatial location.
         diff = diff.permute(0, 3, 2, 1) # shape: (B, H' * W', win_size, C)
-        # quadratic form from einsum should be equivalent to (I - mu).T @ inv_cov @ (I - mu) from the Kaiming He Paper
-        quadratic = diff @ inv_cov @ diff.transpose(2,3) # shape (B, H' * W', win_size, win_size)
-        quadratic += torch.ones_like(quadratic)
-        #quadratic = torch.einsum('... c s n, ... d r n, ... e t n -> ... s t n', diff, inv_cov, diff) # shape (B, win_size, win_size, H' * W')
+        # quadratic form from einsum should also be equivalent to (I - mu).T @ inv_cov @ (I - mu) from the Kaiming He Paper
+        #quadratic = diff @ inv_cov @ diff.transpose(2,3) # shape (B, N = H' * W', win_size, win_size)
+        # compute per‐patch energies in one shot (should avoid intermediate large N^2 tensors)
+        quadratic = torch.einsum('... s c, ... c d, ... t d -> ... s t', diff, inv_cov, diff) # shape (B, N = H' * W', win_size, win_size)
+        del diff, inv_cov  # free up memory
+        quadratic += 1.0
+        # division by window
         return quadratic.div(self.win_size) # shape (B, H' * W', win_size, win_size)
 
-    def get_coo_indices(self, img_shape, device="cuda"):
-        """ Computes the row and column indices for the sparse matrix.
-            Args:
-                patches (Tensor): Extracted patches of shape (B, C, win_diam, H', W').
-            Returns:
-                indices (Tensor): Row and column indices for the sparse matrix.
-        """
-        B, C, H, W = img_shape
-        win_diam = 2 * self.win_radius + 1
-        patch_indices = torch.arange(H * W, device=device).reshape(1, H, W)
-        patch_indices = patch_indices.unfold(1, win_diam, 1).unfold(2, win_diam, 1) # shape: (1, H', W', win_diam, win_diam)
-        patch_indices = patch_indices.reshape(1, -1, self.win_size).expand(B, -1, -1)  # Shape: (B, H' * W', win_size)
-        # generate row and column indices for the sparse matrix
-        indices = torch.stack([
-            patch_indices.view(B, -1, 1).repeat(1, 1, self.win_size).flatten(start_dim=1),
-            patch_indices.repeat(1, 1, self.win_size).flatten(start_dim=1),
-        ], dim=0) # shape: (2, B, H' * W' * win_size**2)
-        return indices
 
-
-    def construct_laplacian_parallel(self, laplacian, indices, img_shape):
-        """ Constructs the Laplacian matrix in parallel for each batch. """
+    def construct_laplacian_parallel(self, laplacian: torch.Tensor, indices: torch.Tensor,
+                                     img_shape: Sequence[int], mask: Optional[torch.Tensor] = None):
+        """ Constructs the Laplacian matrix asynchronously for each batch index using torchscript """
         B, C, H, W = img_shape
-        lap_vals = laplacian.flatten(start_dim=1)  # (B, H' * W' * win_size**2)
-        # Use `torch.jit.fork` for parallel Laplacian construction
-        futures = []
-        for i in range(B):
-            futures.append(torch.jit.fork(
-                torch.sparse_coo_tensor, indices[:, i, :], lap_vals[i], size=torch.Size([H * W, H * W]), device=lap_vals.device
-            ))
-        # wait for all parallel tasks to complete
-        sparse_laplacians = [torch.jit.wait(f) for f in futures]
-        # compute the Kronecker delta correction in parallel
-        futures = []
-        for i in range(B):
-            sum_L_b = torch.sparse.sum(sparse_laplacians[i], dim=1).to_dense()  # (H * W,)
-            diag_L_b = torch.sparse_coo_tensor(
-                torch.arange(H * W, device=sum_L_b.device).unsqueeze(0).repeat(2, 1),
-                sum_L_b, (H * W, H * W)
-            )
-            futures.append(torch.jit.fork(lambda L, D: D - L, sparse_laplacians[i], diag_L_b))
-        torch.cuda.synchronize()  # Ensure all GPU operations are complete before proceeding
-        # return fully computed Laplacians
+        lap_vals = laplacian.flatten(start_dim=1)  # (B, nnz = H' * W' * win_size**2)
+        N = H * W
+        del laplacian  # free memory since lap_vals has the needed data now
+        # use `torch.jit.fork` for asynchronous Laplacian construction
+        futures = [
+            torch.jit.fork(
+                _construct_final_L, indices[:, b, :], lap_vals[b], N, self.win_size**2, mask[b] if mask is not None else None)
+            for b in range(B)
+        ]
+        # torch.cuda.synchronize()  # ensure all GPU operations are complete before proceeding
+        # wait and return fully computed Laplacians
         return [torch.jit.wait(f) for f in futures]
 
 
-    def construct_laplacian_sequential(self, laplacian, indices, img_shape):
+    def construct_laplacian_sequential(
+        self,
+        laplacian: torch.Tensor,
+        indices: torch.Tensor,
+        img_shape,
+        mask: torch.Tensor = None
+    ) -> List[torch.sparse.Tensor]:
+        """ Constructs the sparse Laplacian matrix sequentially for each batch index
+            Args:
+                laplacian (Tensor): Laplacian response of shape (B, H' * W', win_size, win_size)
+                indices (Tensor): Row and column indices for the sparse matrix of shape (2, B, H' * W' * win_size**2)
+                img_shape (tuple): Shape of the input image (B, C, H, W)
+        """
         B, C, H, W = img_shape
         # Construct sparse matrices batch-wise
+        # _construct_final_L, indices[:, b, :], lap_vals[b], N, self.win_size**2, mask[b] if mask is not None else None)
         sparse_laplacians = []
-        for i in range(B):
-            lap_vals = laplacian[i].flatten()  # Shape: (H' * W' * win_size**2)
-            indices_b = indices[:, i, :]  # Shape: (2, H' * W' * win_size**2)
-            # Create batchwise sparse tensor
-            L_b = torch.sparse_coo_tensor(indices_b, lap_vals, torch.Size([H * W, H * W])) #.coalesce() # shape: (HW, HW)
-            # Compute the sum of each row in L (Kronecker delta term from Eq. (5))
-            sum_L_b = torch.sparse.sum(L_b, dim=1).to_dense()  # Shape: (H * W,)
-            # Create diagonal matrix from sum_L_b
-            diag_L_b = torch.sparse_coo_tensor(
-                torch.arange(H * W, device=L_b.device).unsqueeze(0).repeat(2, 1),
-                sum_L_b, (H * W, H * W), device=L_b.device
-            ) # shape: (HW, HW)
-            # Compute final Matting Laplacian: L = Diagonal(sum_L) - L (Equation (5))
-            L_b = diag_L_b - L_b # shape: (HW, HW)
+        for b in range(B):
+            lap_vals = laplacian[b].flatten()  # Shape: (H' * W' * win_size**2)
+            indices_b = indices[:, b, :]  # Shape: (2, H' * W' * win_size**2)
+            L_b = _construct_final_L(indices_b, lap_vals, H*W, self.win_size**2, mask[b] if mask is not None else None)
+            # #? NOTE: I tried multiplying the Laplacian response by -1 first then do in-place addition here, but regression tests failed hard
+            # L_b = diag_L_b - L_b # shape: (HW, HW)
             sparse_laplacians.append(L_b)
         return sparse_laplacians  # List of (H*W, H*W) sparse tensors
 
 
-    def compute_laplacian(self, img: torch.Tensor, mask=None):
+
+    def compute_laplacian_response(self, img: torch.Tensor, mask: Optional[torch.Tensor] = None):
         """ Computes the Matting Laplacian response based on local covariance statistics.
             Args:
                 img (Tensor): Input image tensor of shape (B, C, H, W).
@@ -174,108 +195,91 @@ class MattingLaplacianLoss(nn.Module):
             Returns:
                 laplacian (Tensor): Laplacian response of shape (B, H, W).
         """
-        if img.dim() != 4:
-            raise ValueError(f"Expected 4D tensor, got {img.dim()}D tensor of shape {tuple(img.shape)}")
-        # FIXME: shouldn't be necessary to be exactly the same shape as long as it has the same spatial and batch dimensions
-        if mask is not None and mask.shape != img.shape:
-            raise ValueError(f"Mask shape {mask.shape} does not match image shape {tuple(img.shape)}")
         # NOTE: using the notation H' and W' in subsequent comments, meaning H' = H - 2*win_rad, W' = W - 2*win_rad
-        patches = self.extract_patches(img)  # (B, C, win_diam, win_diam, H', W')
+        B, _, H, W = img.shape  # B: batch size, C: channels, H: height, W: width
+        # TODO: there must be a more memory efficient way to do this (with fewer extra dimensions)
+        patches = self._extract_patches(img)  # (B, C, win_diam, win_diam, H', W')
+        # patches = F.unfold(img, kernel_size=self.win_diam, padding=self.win_radius) # shape: (B, C * win_size, H' * W')
+        window_mask = self._compute_window_mask(mask) if mask is not None else None # shape: (B, N)
         local_mean, cov = self.compute_local_statistics(patches)
         # Regularize the covariance matrix and invert it.
         laplacian = self.compute_quadratic_term(patches, local_mean, cov) # shape: (B, H' * W', win_size, win_size)
+        # TODO: (maybe) add some thresholding to the the Laplacian to enforce sparsity - maybe anything below 1e-8 to zero?
         del patches, local_mean, cov  # free up memory
-        torch.cuda.empty_cache()  # clear GPU memory
-        indices = self.get_coo_indices(img.shape, img.device) # shape: (2, B, H' * W' * win_size**2)
+        #indices = self.get_coo_indices(img.shape, img.device) # shape: (2, B, H' * W' * win_size**2)
+        indices = self._cache.get_indices(H, W, img.device).unsqueeze(1).expand(2, B, -1)  # shape: (2, B, H' * W' * win_size**2)
         #return laplacian, indices # REMOVE: using for debugging in comparing device speedup (accumulating error meant I had to use the same `laplacian`)
-        # Construct sparse matrices batch-wise
+        # TODO: may decouple settings for device and parallelism later - main problem is that CPU multithreading could interfere with DataLoader workers
+        # construct sparse matrices batch-wise
         if img.is_cuda:
-            return self.construct_laplacian_parallel(laplacian, indices, img.shape)
-        return self.construct_laplacian_sequential(laplacian, indices, img.shape)
+            return self.construct_laplacian_parallel(laplacian, indices, img.shape, window_mask)
+        return self.construct_laplacian_sequential(laplacian, indices, img.shape, window_mask)
 
 
 
     # NOTE: following two functions follow the cost function defined in "Fast Matting Using Large Kernel Matting Laplacian Matrices"
     ################################################################################################################################
-    # TODO: if I end up keeping both implementations, I should just make this a single function with a decorator to switch between sparse and dense
-    def sparse_quadratic_loss(self, pastiche: torch.Tensor, laplacian: torch.sparse.Tensor, mask: torch.Tensor = None):
-        # Use sparse matrix multiplication (only works on CPU for now)
-        B, C = pastiche.shape[:2]
-        loss = 0
-        # WORKING BUT SLOWER:
-        ######################################################################################################
-        # for b in range(B):  # Iterate over batches
-        #     lap_b = laplacian[b]  # Shape (HW, HW), Sparse
-        #     for c in range(C):  # Iterate over channels
-        #         x = pastiche[b, c].reshape(-1, 1)  # Shape (HW, 1), Dense
-        #         # Efficient sparse matrix multiplication: (HW, HW) x (HW, 1) -> (HW, 1)
-        #         lap_x = torch.sparse.mm(lap_b, x)  # Sparse multiplication
-        #         # Compute quadratic form x^T L x
-        #         loss += torch.dot(x.view(-1), lap_x.view(-1))  # Scalar value
-        ######################################################################################################
+    # TODO: if keeping both implementations, I should just wrap a loss function with a decorator to switch between sparse and dense
+    def sparse_quadratic_loss(self, pastiche: torch.Tensor, laplacian: torch.sparse.Tensor):
+        """ computes the sparse quadratic form loss for the Matting Laplacian """
+        B, C, H, W = pastiche.shape
+        #loss = torch.empty(B, device=pastiche.device, requires_grad=True)
+        losses = []
         for b in range(B):  # Iterate over batch
-            lap_b = laplacian[b]  # Shape (HW, HW), Sparse
-            print("lap_b shape: ", lap_b.shape)
-            x = pastiche[b].reshape(C, -1, 1)  # Shape (C, HW, 1)
-            print("x shape: ", x.shape)
-            # Efficient sparse batch multiplication
-            lap_x = torch.stack([torch.sparse.mm(lap_b, x[c]) for c in range(C)])  # (C, HW, 1)
-            print("lap_x shape: ", lap_x.shape)
-            # Compute quadratic loss using einsum
-            loss += torch.einsum("c h, c h -> ", x.squeeze(-1), lap_x.squeeze(-1))  # scalar
-            print("loss shape: ", loss.shape)
-        return loss / (B * C)
+            x = pastiche[b].reshape(C, -1) # shape (C, HW)
+            gradient = torch.sparse.mm(laplacian[b], x.T).T / (H * W)
+            # loss += torch.sparse.mm(x, gradient)
+            # single dot product per channel with summation over channels
+            #loss[b] = (x * gradient).sum()
+            losses.append((x * gradient).sum())
+        # TODO: (important) replace original repo's gradient clipping back to (-0.05, 0.05) in the loss manager later
+        loss = torch.stack(losses) #torch.mean(loss) #/ (H * W)  # Mean over batch
+        loss.requires_grad = True
+        return loss.mean()
 
 
-    def dense_laplacian_loss(self, pastiche: torch.Tensor, laplacian: Union[torch.Tensor, torch.sparse.Tensor], mask: torch.Tensor = None):
-        # Dense matrix multiplication (better for back-propagation on CUDA)
-        B, C = pastiche.shape[:2]
+    #& MIGHT REMOVE - dense implementation just doesn't seem worth it since it always runs out of memory on any device
+    def dense_laplacian_loss(self, pastiche: torch.Tensor, laplacian: Union[torch.Tensor, torch.sparse.Tensor]):
+        """ Computes the dense quadratic form loss for the Matting Laplacian (better for back-propagation on CUDA) """
+        B, C, H, W = pastiche.shape
+        # TODO: need to work on making this usable again (not immediately running out of memory), but it's not a priority right now
+            # may forgo the dense implementation entirely and might try my luck with CUSPARSE later
         laplacian_dense = laplacian.to_dense() if laplacian.is_sparse else laplacian
         loss = 0
         for c in range(C):
-            x = pastiche[:, c, :].reshape(B, -1)  # Shape (B, C, HW) -> (B, HW)
-            lap_x = torch.matmul(laplacian_dense, x.T).T  # Shape (B, HW)
-            loss += torch.sum(x * lap_x)  # Quadratic form: x^T L x
-        return loss / (B * C)
+            #x = pastiche[:, c, :].reshape(B, -1)  # Shape (B, C, HW) -> (B, HW)
+            x = pastiche[:, c, :].reshape(B, -1, 1)  # Shape (B, C, HW) -> (B, HW, 1)
+            #lap_x = torch.matmul(laplacian_dense, x.T).T  # Shape (B, HW)
+            grad = torch.bmm(laplacian_dense, x) / (H * W)  # Shape (B, HW, 1)
+            # loss += torch.sum(x * lap_x)  # Quadratic form: x^T L x
+            loss += torch.bmm(x, grad)
+        return loss.mean()
     ################################################################################################################################
 
 
-    # def get_laplacian_mse_loss(self, lap_pastiche: torch.Tensor, lap_content: torch.Tensor, mask: torch.Tensor = None):
-    #     if mask is not None:
-    #         # Ensure mask is broadcastable to (B, H, W)
-    #         if mask.dim() == 3:
-    #             mask = mask.unsqueeze(1)
-    #         # Remove channel dimension if present.
-    #         mask = mask.squeeze(1)
-    #         # Compute the mean squared error only over valid (masked) pixels.
-    #         diff_sq = (lap_pastiche - lap_content) ** 2
-    #         return (diff_sq * mask).sum() / (mask.sum() + self.eps)
-    #     return F.mse_loss(lap_pastiche, lap_content)
-
-    @staticmethod
-    def sparse_mse_loss(sparse_x: torch.sparse.Tensor, sparse_y: torch.sparse.Tensor):
-        """ Computes the Mean Squared Error (MSE) between two sparse tensors.
-            Args:
-                sparse_x (torch.sparse.Tensor): First sparse tensor.
-                sparse_y (torch.sparse.Tensor): Second sparse tensor.
-            Returns:
-                loss (torch.Tensor): Scalar loss value.
-        """
-        assert sparse_x.is_sparse and sparse_y.is_sparse, "Inputs must be sparse tensors"
-        # Ensure they have the same shape
-        assert sparse_x.shape == sparse_y.shape, f"Shape mismatch: {sparse_x.shape} vs {sparse_y.shape}"
-        # Ensure they have the same number of non-zero elements
-        assert sparse_x.indices().equal(sparse_y.indices()), "Sparse tensors must have the same sparsity pattern"
-        # Compute MSE only on non-zero elements
-        diff = sparse_x.values() - sparse_y.values()
-        return torch.mean(diff ** 2)
+    def _preprocess(self, img: torch.Tensor, mask: Optional[torch.Tensor] = None):
+        # leaving this here in case I want to add additional preprocessing steps to `forward()`
+        if img.ndim not in [3,4]:
+            raise ValueError(f"Expected 3D or 4D tensor, but got {img.dim()}D tensor of shape {tuple(img.shape)}")
+        if img.ndim == 3:  # if input is (C, H, W), add batch dimension
+            img = img.unsqueeze(0)
+        if img.max() > 1.0: # TODO: replace with more robust normalization functions from utils of other projects later
+            img = img.float() / 255.0
+        if mask is not None:
+            if (mask.shape[-2:] != img.shape[-2:]) and (mask.shape[0] != img.shape[0]):
+                raise ValueError(f"Mask shape {mask.shape} does not match image shape {tuple(img.shape)}")
+            # TODO: may add support for multiclass masks later, but it requires reimplementation of some channel-wise ops
+            assert mask.dtype == torch.bool, f"Only boolean masks are supported for now; got {mask.dtype}"
+        # this is taken care of implicitly if we move the whole module to the same device first, but this is a simple fallback
+        if self.ident.device != img.device:
+            self.ident = self.ident.to(img.device)
+        return img
 
 
-
-    def postprocess(self, laplacian: torch.Tensor):
+    def _postprocess(self, laplacian: torch.Tensor):
         if isinstance(laplacian, list):
             laplacian = torch.stack(laplacian)
-        if isinstance(laplacian, torch.sparse.Tensor):
+        if isinstance(laplacian, torch.sparse.Tensor) and not laplacian.is_coalesced():
             # Convert to COO format for safe element-wise operations
             laplacian = laplacian.coalesce()
         return laplacian
@@ -290,15 +294,108 @@ class MattingLaplacianLoss(nn.Module):
             Returns:
                 loss (Tensor): A scalar tensor representing the mean squared error between the laplacian responses.
         """
-        lap_content = self.postprocess(self.compute_laplacian(content_img, mask=mask))  # Enable gradients for content Laplacian
-        if self.objective == "mse":
-            del content_img
-            torch.cuda.empty_cache()
-            lap_stylized = self.postprocess(self.compute_laplacian(stylized_img, mask=mask))
-            return self.sparse_mse_loss(lap_stylized, lap_content)
-        elif self.objective == "sparse":
-            return self.sparse_quadratic_loss(stylized_img, lap_content, mask=mask)
-        elif self.objective == "dense":
-            return self.dense_laplacian_loss(stylized_img, lap_content, mask=mask)
-        else:
-            raise ValueError(f"Unsupported objective: {self.objective}")
+        content_img = self._preprocess(content_img, mask=mask)
+        stylized_img = self._preprocess(stylized_img)
+        lap_content = self.compute_laplacian_response(content_img, mask=mask)
+        lap_content = self._postprocess(lap_content)  # enable gradients for content Laplacian
+        # dispatch to custom Function
+        return _MattingLaplacianFn.apply(lap_content, stylized_img)
+        # if self.objective == "sparse":
+        #     return self.sparse_quadratic_loss(stylized_img, lap_content,)
+        # else: # elif self.objective == "dense":
+        #     return self.dense_laplacian_loss(stylized_img, lap_content)
+
+
+
+class _MattingLaplacianFn(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, laplacian, stylized_img):
+        """ Computes both scalar loss and raw gradient w.r.t. stylized_img in one pass """
+        # compute per-sample loss and raw gradient
+        B, C, H, W = stylized_img.shape
+        # TODO: might want to make the loss global and call it here while getting rid of both losses in MattingLaplacianLoss entirely
+        loss_accum = 0.0
+        grad = torch.zeros_like(stylized_img)
+        for b in range(B):
+            x = stylized_img[b].reshape(C, -1)
+            Lb = laplacian[b]  # sparse tensor
+            # raw gradient: Lx / (H*W)
+            grad_b = torch.sparse.mm(Lb, x.T).T / (H * W)
+            # scalar loss: x^T (L x) / (H*W)
+            loss_b = (x * grad_b).sum()
+            loss_accum = loss_accum + loss_b
+            grad[b] = grad_b.view_as(stylized_img[b])
+        loss = loss_accum / B
+        # save raw gradient for backward pass
+        ctx.save_for_backward(2.0 * grad)
+        return loss
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        # grad_output is scalar (dTotal/dLoss)
+        (raw_grad,) = ctx.saved_tensors
+        # combine and clamp
+        g = raw_grad * grad_output
+        g = g.clamp(-0.05, 0.05)
+        # propagate only into stylized_img; other inputs get None
+        return None, g, None, None
+
+
+
+class _IndexCache(torch.nn.Module):
+    """
+        Holds any number of buffers:
+            - coo_{H}x{W}  : (2, H'*W'*win_size, )  flat indices
+            - primary class member _dict: OrderedDict mapping (H,W) -> buffer name for tensors
+        Exposed APIs:
+            .get_indices(H,W) -> (2, H'*W'*win_size)
+    """
+    def __init__(self, win_d: int, max_size: int = 8):
+        super().__init__()
+        self.win_d = win_d
+        self.win_size = win_d ** 2
+        self.max_size = max_size
+        # use a regular dict to store the buffer names, since tensors will be stored in the module's buffers
+        self._dict: Dict[str, str] = OrderedDict()
+
+    def get_indices(self, H: int, W: int, device: Union[str, torch.device] = "cpu"):
+        """ Computes the row and column indices for the sparse matrix while maintaining LRU cache
+            Args:
+                H, W: spatial dimensions of the input image
+                device (str or torch.device): Device on which to construct the indices (default: "cpu")
+            Returns:
+                indices (Tensor): Row and column indices for the sparse matrix of shape (2, H' * W' * win_size**2)
+        """
+        key = (H, W)
+        # key = f"{H}x{W}"
+        # if key is present, move to the end (most recently used)
+        if key in self._dict.keys():
+            bufname = self._dict.pop(key)
+            self._dict[key] = bufname
+            # look up the name and return the buffer
+            return getattr(self, bufname)
+        # else build new indices and register them
+        # build meshgrid of indices for the patches
+        patch_idx = torch.arange(H*W, device=device).view(1, H, W)
+        # extract valid windows of size win_d
+        patches = (
+            patch_idx
+            .unfold(1, self.win_d, 1).unfold(2, self.win_d, 1)
+            .reshape(1, -1, self.win_size)
+        )  # (1, num_windows, win_size)
+        rows = patches.reshape(-1, 1).repeat(1, self.win_size).flatten()
+        cols = patches.repeat(1, 1, self.win_size).flatten()
+        idx  = torch.stack([rows, cols], dim=0)   # (2, num_windows * win_size)
+        # register idx under a safe buffer name and store the key-value pair in the dict
+        bufname = f"coo_{H}x{W}"
+        self.register_buffer(bufname, idx) # should live on the right device (since this is a submodule of the MLL)
+        self._dict[key] = bufname
+        # look up the name and return the buffer
+        #bufname = self._dict[key]
+        #return getattr(self, bufname)
+        # evict oldest entry if over capacity
+        if len(self._dict) > self.max_size:
+            _, oldest_buf = self._dict.popitem(last=False)
+            # remove buffer attribute after ejection
+            delattr(self, oldest_buf)
+        return idx

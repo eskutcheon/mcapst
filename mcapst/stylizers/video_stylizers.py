@@ -101,3 +101,7 @@ class MaskedVideoStylizer(BaseVideoStylizer):
                 style_paths: Style image template path(s)
         """
         raise NotImplementedError
+
+    #~ This one will be a later addition after tweaking, but I'm incoporating the label remapping while knocking out the MaskedImageStylizer class:
+        #~ main difference between the two (ref: old video_transfer.py script) is that style masks are remapped once and content masks are remapped for each frame
+        

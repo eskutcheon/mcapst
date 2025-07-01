@@ -144,16 +144,16 @@ class HFStreamingIterable(IterableDataset):
     def __iter__(self):
         # self.raw_dataset is an iterator itself
         base_iter = iter(self.raw_dataset)  # yields dict with "image", "label", etc.
-        # If we want to shuffle, wrap base_iter with a shuffle generator
+        # if we want to shuffle, wrap base_iter with a shuffle generator
         sample_iter = self._shuffle_generator(base_iter) if self.buffer_size > 0 else base_iter
-        # Finally yield each item
+        # finally yield each item
         for sample in sample_iter:
             # apply transforms to image from the iterator item
             img = self.transform(sample["image"])
             yield {"img": img}
 
     def __len__(self):
-        # We do not know the length of a streaming dataset
+        # ERROR: can't know the length of a streaming dataset
         raise TypeError("HFStreamingIterable has no length (infinite or unknown).")
 
 
@@ -170,5 +170,6 @@ def test_if_valid_hf_dataset(name: str) -> bool:
         # return whether the HTTP 200 OK status code was returned by the server
         return response.status == 200
     except HTTPError as e:
-        print(f"Error accessing dataset {name}: {e}")
+        print(f"Error accessing dataset '{name}': {e}")
+        print(f"Ensure this is a valid HuggingFace dataset and appropriate permissions are enabled.")
         return False

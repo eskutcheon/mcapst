@@ -6,6 +6,7 @@ import torchvision.io as IO
 from .base_stylizers import BaseStylizer, transform_preprocess
 from ..models.containers import FeatureContainer, StyleWeights
 from ..utils.utils import ensure_file_list_format
+from ..utils.label_remapping import SegLabelMapper
 
 
 
@@ -85,6 +86,8 @@ class MaskedImageStylizer(BaseImageStylizer):
         ckpt: str,
         max_size: int,
         seg_model_ckpt: Optional[str] = None,
+        #& just added this argument so it's never set at the moment - add support for this input later
+        seg_labels_path: Optional[str] = None,
         postprocessor: Optional[callable] = None,
         reg_method: str = "ridge"
     ):
@@ -100,6 +103,10 @@ class MaskedImageStylizer(BaseImageStylizer):
         raise NotImplementedError("Not tested and confirmed working yet; also needs refactoring for strictly handling style tensors")
         super().__init__(mode, ckpt, max_size, postprocessor, reg_method)
         self.segmentation_model = self._initialize_segmentation_model(seg_model_ckpt)
+        self.label_mapper = SegLabelMapper(mapping_name=seg_labels_path, min_ratio=0.01) if seg_labels_path else None
+        # TODO: might want to either raise an error if seg_labels_path is None or just set it to a default path
+        
+
 
     def load_multi_style_masks(self, mask_paths: Union[str, Iterable[str]]):
         mask_paths = ensure_file_list_format(mask_paths)
@@ -136,6 +143,7 @@ class MaskedImageStylizer(BaseImageStylizer):
             Returns:
                 torch.Tensor: One-hot encoded content mask of shape [C, H, W].
         """
+        seg_mask: Optional[torch.Tensor] = None
         if self.segmentation_model is None:
             raise ValueError("Segmentation model not initialized. Provide a pre-trained checkpoint during instantiation.")
         with torch.no_grad():
@@ -143,28 +151,47 @@ class MaskedImageStylizer(BaseImageStylizer):
             if torch.cuda.is_available():
                 input_tensor = input_tensor.cuda()
             output = self.segmentation_model(input_tensor)['out']
-            segmentation = torch.argmax(output, dim=1, keepdim=False)
-        # TODO: need to use SegRemapping to align the content and style segmentation classes
-        one_hot_mask = torch.nn.functional.one_hot(segmentation.squeeze(0), num_classes=output.shape[1])
-        return one_hot_mask.permute(2, 0, 1).bool()
+            seg_mask = torch.argmax(output, dim=1, keepdim=False)
+        # TODO: need to use SegLabelMapper to align the content and style segmentation classes
+        #! FIXCHANGE: might not want one-hot labels at all here
+        #one_hot_mask = torch.nn.functional.one_hot(seg_mask.squeeze(0), num_classes=output.shape[1])
+        #return one_hot_mask.permute(2, 0, 1).bool()
+        return seg_mask # should be a label tensor of shape [B, H, W] with values in [0, num_classes-1]
+
+    def _align_mask_labels(self, content_mask: torch.Tensor, style_masks: List[torch.Tensor]) -> torch.Tensor:
+        """ Align the segmentation mask labels between content and style images """
+        assert self.label_mapper is not None, "Label mapper not initialized. Provide a valid mapping path."
+        assert content_mask.ndim in (3, 4), "Content mask must be a single 3D tensor or 4D batch tensor."
+        assert all(m.ndim in (3, 4) for m in style_masks), "All style masks must be 3D or 4D tensors."
+        content_mask = self.label_mapper(content_mask)
+
 
     @transform_preprocess
     def transform(
         self,
         sample: Union[torch.Tensor, Dict[str, torch.Tensor]],
         style_paths: Union[str, List[str]],
+        # TODO: remove all dependence on `use_segmentation` later since segmentation is done in this new subclass (keeping for now until I change the way arguments are passed)
         use_segmentation: bool = False,
         alpha_c: Union[float, None] = None,
         alpha_s: Union[float, Iterable[float]] = None,
         mask_paths: Union[str, List[str], None] = None,
     ) -> torch.Tensor:
         """ Handle preprocessing, call stylize, and post-process the augmented sample. """
+        content_img: torch.Tensor               # content image tensor (either passed directly or read from the `sample` dictionary)
+        cmask: Optional[torch.Tensor]           # content segmentation mask
+        smask: Optional[List[torch.Tensor]]     # style segmentation mask(s) as a list of tensors (to support multiple styles)
+        # actual assignments:
         content_img = sample if not isinstance(sample, dict) else sample["img"]
         cmask = sample.get("mask", None) if use_segmentation and isinstance(sample, dict) else None
         if use_segmentation and cmask is None:
             cmask = self.generate_content_mask(content_img)
+        # TODO: if we still allow auto-segmentation, we have to support style mask segmentation like the original project
         smask = self.load_multi_style_masks(mask_paths) if use_segmentation and mask_paths else None
-        pastiche = self.stylize_from_images(content_img, style_paths=style_paths, alpha_c=alpha_c, alpha_s=alpha_s, cmask=cmask, smask=smask)
+        cmask, smask = self._align_mask_labels(cmask, smask) if use_segmentation and cmask is not None and smask is not None else (cmask, smask)
+        pastiche = self.stylize_from_images(content_img,
+                                            style_paths=style_paths, alpha_c=alpha_c, alpha_s=alpha_s,
+                                            cmask=cmask, smask=smask)
         if self.postprocessor:
             pastiche = self.postprocessor(pastiche)
         pastiche = pastiche.clamp(0,1)

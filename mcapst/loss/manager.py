@@ -29,7 +29,7 @@ class LossManager:
         self.temporal_loss = TemporalLoss() if self.temporal_weight > 0 else None
         self.style_encoder = style_encoder if style_encoder is not None else VGG19(config.vgg_ckpt)  # Store style encoder or use default VGG19
         # NOTE: using win_rad = 1 because only 3x3 kernels are supported for now - the original never supported larger kernels either
-        self.laplacian_loss_module = MattingLaplacianLoss(win_rad=1, objective="mse") if self.lap_weight > 0 else None
+        self.laplacian_loss_module = MattingLaplacianLoss(win_rad=1, objective="sparse") if self.lap_weight > 0 else None
 
     @staticmethod
     def _toggle_grad(*args):
@@ -37,19 +37,15 @@ class LossManager:
         for arg in args:
             if isinstance(arg, torch.Tensor):
                 arg.requires_grad = not arg.requires_grad
-            # else:
-            #     raise TypeError(f"Expected torch.Tensor, got {type(arg)}")
-        #return args
 
     def compute_losses(self, content_img, style_img, stylized_img, mask = None, stylizer_callback: Callable = None): #, laplacian_list=None):
         """ Computes all losses, including Matting Laplacian loss if enabled, while ensuring differentiability for backpropagation. """
         content_loss, style_loss = self._compute_content_style_loss(content_img, style_img, stylized_img, self.content_weight, self.style_weight)
-        # Toggle gradient computation for content and stylized images and mask if provided
+        # Toggle gradient computation for content and stylized images and mask if provided (to avoid tracking content-style loss above)
         self._toggle_grad(content_img, stylized_img, mask)
         reconstruction_loss = self._compute_reconstruction_loss(content_img, stylized_img, self.rec_weight)
         temporal_loss = self._compute_temporal_loss(content_img, stylized_img, self.temporal_weight, stylizer_callback)
         del stylizer_callback, style_img  # free up memory
-        torch.cuda.empty_cache()  # clear GPU memory
         laplacian_loss = self._compute_laplacian_loss(content_img, stylized_img, mask, self.lap_weight)
         # dynamically construct the losses dictionary from __local__ variables, removing `_loss` suffix from keys
         losses = {key.replace("_loss", ""): value for key, value in locals().items() if key.endswith("_loss")}
@@ -76,9 +72,11 @@ class LossManager:
         return cweight * closs, sweight * sloss
 
     def _compute_reconstruction_loss(self, content_img, stylized_img, weight=1.0):
+        """ Computes the reconstruction loss (L1 loss) between content and stylized images - referred to as the cycle consistency loss in the original paper """
         return weight * self.l1_loss(content_img, stylized_img)
 
     def _compute_temporal_loss(self, content_img: torch.Tensor, stylized_img: torch.Tensor, weight=1.0, callback: Callable = None):
+        """ computes the temporal loss between (spoofed) sequential stylized images to train video stylization models """
         if weight == 0:
             return torch.tensor(0.0, device=content_img.device, requires_grad=True)
         # NOTE: the original authors used the first frame of the content image as the previous frame for computing optical flow

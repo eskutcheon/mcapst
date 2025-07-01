@@ -94,7 +94,7 @@ if args.auto_seg:
 
 
     # Post-processing segmentation results
-    from models.segmentation.SegReMapping import SegReMapping
+    from scripts.SegReMapping import SegReMapping
     label_remapping = SegReMapping(args.label_mapping, min_ratio=args.min_ratio)
     content_seg = label_remapping.self_remapping(content_seg)  # eliminate noisy class
     style_seg = label_remapping.self_remapping(style_seg)

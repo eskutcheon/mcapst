@@ -3,7 +3,6 @@ from typing import Dict, Type
 sys.path.append(os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')))
 import tempfile
 import pytest
-import torch
 # local imports
 from mcapst.config.configure import TrainingConfig
 from mcapst.pipelines.train import stage_training_pipeline, ImageTrainer, VideoTrainer

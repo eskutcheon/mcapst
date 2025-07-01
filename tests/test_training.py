@@ -11,13 +11,13 @@ def main():
     config_path = "temp_config.yaml"
     config = {
         "base_name": "test_run",
-        "mode": "photorealistic",
+        "transfer_mode": "photorealistic",
         #"win_rad": 1,
         "lr": 1e-4,
         "lr_decay": 5e-5,
         "data_cfg": {
-            "train_content": "data/train_content",
-            "train_style": "data/train_style",
+            #"train_content": "data/train_content",
+            #"train_style": "data/train_style",
             "batch_size": 2,
             "new_size": 512,
             "crop_size": 256,
@@ -47,13 +47,11 @@ def main():
     }
     with open(config_path, "w") as file:
         yaml.dump(config, file)
-
-    # Load ConfigManager and initialize training
+    # load ConfigManager and initialize training
     config_manager = ConfigManager(mode="training", config_path=config_path)
     trainer = ImageTrainer(config_manager.get_config())
     trainer.train()
-
-    # Clean up
+    # clean up
     os.remove(config_path)
 
 if __name__ == "__main__":

@@ -196,3 +196,26 @@ def cpu_wrapper(compute_on_cpu):
                 return func(tensor, *args, **kwargs)
         return wrapper
     return decorator
+
+
+
+# TODO: move to tests/ somewhere later - this was easier at the time when doing quick regression testing
+def compare_tensor_with_benchmark(target, filename, exact = True, rtol=1e-3, atol=1e-5, names = ["SOURCE", "TARGET"]):
+    """ Loads saved tensor from NumPy implementation and compares with PyTorch target tensor.
+        Args:
+            target (torch.Tensor): Extracted indices from PyTorch.
+            filename (str): Path to saved NumPy-based `source.pt`.
+    """
+    # load the saved indices
+    source = torch.load(filename, weights_only=True)
+    # ensure shapes match
+    if source.shape != target.shape:
+        print(f"Shape Mismatch: {names[0]} {source.shape}, {names[1]} {target.shape}")
+        return False
+    # check if values match
+    if exact:
+        result_str = 'matches' if torch.equal(source, target) else 'does NOT match'
+        print(f"{names[1]} {result_str} {names[0]}!")
+    else:
+        result_str = 'is close to' if torch.allclose(source, target, rtol=rtol, atol=atol) else 'is NOT close to'
+        print(f"{names[1]} {result_str} {names[0]} within rtol={rtol}, atol={atol}!")

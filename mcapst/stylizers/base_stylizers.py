@@ -116,7 +116,7 @@ def transform_preprocess(func: Callable) -> Callable:
 
 """
     ? NOTE on use_segmentation:
-        - [x] going to have to deal with SegRemapping conversion for tensors later
+        - [x] going to have to deal with SegLabelMapper conversion for tensors later
         - [ ] also, I could potentially move the label filtering in cWCT.get_masked_target_features to an earlier preprocessing step
             in `stylize_from_images`,
         - [ ] still need to add error checking for the case where one mask is None and another isn't

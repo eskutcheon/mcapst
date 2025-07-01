@@ -6,7 +6,7 @@ from typing import Dict, Union, Optional, Type
 from dataclasses import dataclass, field, fields
 
 
-
+# TODO: need to write a setup script to download the default checkpoints to the top level data/ directory if they don't exist
 DEFAULT_INFERENCE_CHECKPOINTS = {
     "artistic": {
         "image": "checkpoints/art_image.pt",
@@ -55,8 +55,8 @@ class LossConfig:
 @dataclass
 class DatasetConfig:
     # NOTE: paths here don't exist but are placeholders for the user to provide their own datasets
-    train_content: str = "data/content"
-    train_style: str = "data/style"
+    train_content: str = None #"data/content"
+    train_style: str = None #"data/style"
     batch_size: int = 2
     new_size: int = 512
     crop_size: int = 256
@@ -89,8 +89,10 @@ class TrainingConfig(BaseConfig):
     def __post_init__(self):
         super().__post_init__()  # from BaseConfig
         # for dictionary overrides, we need to ensure that the nested dataclasses are instantiated properly
+        print("[DEBUGGING] testing if post_init works right for dict inputs")
         if not isinstance(self.data_cfg, DatasetConfig):
             self.data_cfg = DatasetConfig(**self.data_cfg)
+            print(f"[DEBUGGING] data_cfg was not a DatasetConfig, converted it to one: {type(self.data_cfg)}")
         if not isinstance(self.loss_cfg, LossConfig):
             self.loss_cfg = LossConfig(**self.loss_cfg)
         # Additional checks
@@ -116,11 +118,6 @@ class InferenceConfig(BaseConfig):
         if not self.ckpt_path:
             mode = "art" if self.transfer_mode in ["artistic", "art"] else "photo"
             self.ckpt_path = DEFAULT_INFERENCE_CHECKPOINTS[mode][self.modality]
-        # ~~possibly check alpha_c, alpha_s~~ should be unnecessary since the StyleWeights class has a normalization step
-        # if self.alpha_c < 0 or self.alpha_c > 1:
-        #     raise ValueError(f"alpha_c={self.alpha_c} must be in [0,1].")
-        # if self.alpha_s < 0 or self.alpha_s > 1:
-        #     raise ValueError(f"alpha_s={self.alpha_s} must be in [0,1].")
 
 
 
@@ -159,7 +156,7 @@ class ConfigManager:
         "use_segmentation": "Use segmentation-based style transfer.",
         "mask_path": "Path to the segmentation mask file.",
         "log_interval": "Interval for logging training progress.",
-        "use_local_datasets": "Use local datasets instead of HuggingFace datasets.",
+        "use_local_datasets": "Whether to use local datasets instead of HuggingFace datasets.",
         "max_size": "Maximum size for input images during inference.",
         # TODO: add remaining config options here
     }
@@ -169,28 +166,36 @@ class ConfigManager:
         self.mode = mode.lower()
         if self.mode not in CONFIG_REGISTRY:
             raise ValueError(f"Unknown mode: {self.mode}. Available modes: {list(CONFIG_REGISTRY.keys())}")
-        self.config: BaseConfig = CONFIG_REGISTRY[self.mode]()
         # load YAML config if provided
         if config_path:
-            self._load_yaml_config(config_path)
+            yaml_args = self._load_yaml_config(config_path)
+        self.config: BaseConfig = CONFIG_REGISTRY[self.mode](**yaml_args) if config_path else CONFIG_REGISTRY[self.mode]()
         self._parse_cli_args()
         # After we have merged YAML + CLI, the dataclass’s __post_init__() runs
             # automatically in the constructor. If we need to re-trigger it, do so:
         # (In Python 3.10+ you can do dataclasses.replace(...) to re-run post_init.)
             # But typically it runs automatically if we pass them in the constructor from scratch.
             # So let's do it manually:
-        self._rerun_post_init()
+        #self._rerun_post_init()
 
     def _load_yaml_config(self, config_path: str):
         """ Loads settings from a YAML configuration file and updates defaults """
         with open(config_path, "r") as file:
             yaml_config = yaml.safe_load(file)
         # merge YAML config into the current config object
+        return yaml_config
+
+    #& added to rearrange logic to allow for instantiating the TrainingConfig just once
+    def _reset_config_from_yaml(self, yaml_config: Dict[str, Union[str, int, float, bool]]):
+        """ Reset the current config object from a YAML dictionary """
+        # merge YAML config into the current config object
         for key, value in yaml_config.items():
             if hasattr(self.config, key):
                 setattr(self.config, key, value)
             else:
-                print(f"WARNING: Unrecognized config key: {key}")
+                print(f"WARNING: Unrecognized config key: {key} in YAML reset.")
+        # re-run post_init to validate the new config
+        self._rerun_post_init()
 
     def _parse_cli_args(self):
         """ Build an ArgumentParser dynamically from fields in the dataclass, then optionally override from CLI. """
@@ -222,6 +227,8 @@ class ConfigManager:
         add_dataclass_args(self.config, prefix="")
         # if training or inference has nested dataclasses, parse them
         if isinstance(self.config, TrainingConfig):
+            print("Data Config type: ", type(self.config.data_cfg))
+            print("Loss Config type: ", type(self.config.loss_cfg))
             add_dataclass_args(self.config.data_cfg, prefix="data_cfg.")
             add_dataclass_args(self.config.loss_cfg, prefix="loss_cfg.")
         elif isinstance(self.config, InferenceConfig):
@@ -259,6 +266,9 @@ class ConfigManager:
         elif field_type == float:
             return float(raw_val)
         elif field_type == bool:
+            #! FIXME: I assumed it would read all of this as a string by default - fix later
+            if isinstance(raw_val, bool):
+                return raw_val
             # we used action="store_true" so if present => True, else => False or just parse manually:
             return raw_val.lower() in ["true", "1", "yes"]
         elif field_type == str:

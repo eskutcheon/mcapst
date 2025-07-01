@@ -121,18 +121,18 @@ class ImageTrainer(TrainerBase):
             content_batch, style_batch = self.data_manager.get_next_batches()
             content_batch = content_batch["img"].to(self.device)
             style_batch = style_batch["img"].to(self.device)
-            # Forward pass
+            # forward pass
             stylized_batch = self.transfer_module.transform(content_batch, [style_batch], alpha_c = alpha_c, alpha_s = alpha_s)
-            losses = self.loss_manager.compute_losses(content_batch, style_batch, stylized_batch) #, laplacian_list)
-            # Backward and optimize
-            total_loss = losses["total"]
             self.optimizer.zero_grad()
+            losses = self.loss_manager.compute_losses(content_batch, style_batch, stylized_batch)
+            # back-propagation gradient computation and optimization
+            total_loss = losses["total"]
             total_loss.backward()
             # TODO: might want to add the gradient clipping magnitude to the config options
             nn.utils.clip_grad_norm_(self.model.parameters(), 5)
             self.optimizer.step()
             # logging and checkpointing steps
-            pbar.set_description(self.get_loss_log_string(losses))
+            pbar.set_description(f"({self.get_loss_log_string(losses)}) \t Progress")
             self._log_progress(losses)
             # save model checkpoints - would be refactored more like my semantic segmentation project if I switch to epochs instead of iterations
             if self.current_iter % self.config.model_save_interval == 0:
