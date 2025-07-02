@@ -84,7 +84,8 @@ class TrainerBase:
 
     @staticmethod
     def get_loss_log_string(losses: Dict[str, float]) -> str:
-        return " | ".join([f"{k}: {v:.3e}" for k, v in losses.items() if v > 0])
+        loss_str = " | ".join([f"{k}: {v:.4}" for k, v in losses.items() if v > 0])
+        return f"({loss_str}) \t Progress"
 
     def _log_progress(self, losses):
         if self.current_iter % self.config.log_interval == 0:
@@ -132,7 +133,7 @@ class ImageTrainer(TrainerBase):
             nn.utils.clip_grad_norm_(self.model.parameters(), 5)
             self.optimizer.step()
             # logging and checkpointing steps
-            pbar.set_description(f"({self.get_loss_log_string(losses)}) \t Progress")
+            pbar.set_description(self.get_loss_log_string(losses))
             self._log_progress(losses)
             # save model checkpoints - would be refactored more like my semantic segmentation project if I switch to epochs instead of iterations
             if self.current_iter % self.config.model_save_interval == 0:
@@ -152,7 +153,7 @@ class VideoTrainer(TrainerBase):
         super().__init__(config)
         # using the BaseImageStylizer since the original implementation only generated fake optical flow data between unrelated images in a batch
             # eventually, I'll add a new data manager for batching video frames and generating real optical flow data in the same manner as it does now.
-        # TODO: if I keep using stylizer classes, I'll have to add some staging for choosing this or the MaskedImageStylizer class
+        # TODO: need to add some staging for choosing the stylizers (e.g. the MaskedImageStylizer class if use_segmentation is True)
         from mcapst.stylizers.image_stylizers import BaseImageStylizer
         self.transfer_module = BaseImageStylizer(
             mode=self.config.transfer_mode,

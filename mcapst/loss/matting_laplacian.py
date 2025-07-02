@@ -26,9 +26,11 @@ def _construct_final_L(indices_b: torch.Tensor, vals_b: torch.Tensor, N: int, wi
 
 #^ MattingLaplacian code formerly in mcapst/utils/MattingLaplacian.py
 class MattingLaplacianLoss(torch.nn.Module):
-    def __init__(self, eps=1e-7, win_rad=1, objective: Literal["sparse", "dense"] = "sparse"):
+    def __init__(self, eps=1e-7, win_rad=1):
         super(MattingLaplacianLoss, self).__init__()
         self.eps = eps
+        if win_rad != 1:
+            raise ValueError(f"Only win_rad=1 is supported (from the original authors), but got {win_rad}.")
         self.win_radius = win_rad
         #! original implementation requiresd that window diameter == C, possibly unintentionally - thus we assume eye(C) == eye(win_diam)
         self.win_diam = win_rad * 2 + 1
@@ -36,16 +38,8 @@ class MattingLaplacianLoss(torch.nn.Module):
         #self.ident = torch.eye(self.win_diam) #.view(1, 1, self.win_diam, self.win_diam)
         # identity matrix saved to a module buffer for normalizing the covariance matrix and solving for its inverse
         self.register_buffer("ident", torch.eye(self.win_diam), persistent=False)
-        # hook to clamp only laplacian gradients to the range [-0.05, 0.05] as in the original implementation
-        #self.register_full_backward_hook(self._clamp_laplacian_grad)
-        # self.win_ident = torch.eye(self.win_size).view(1, 1, self.win_size, self.win_size)
-        # self.register_buffer("win_ident", torch.eye(self.win_size).view(1, 1, self.win_size, self.win_size), persistent=False)
-        # add index cache for the COO indices of the sparse matrix into the _IndexCache submodule (MLL is still stateless except for this)
-        self._cache = _IndexCache(self.win_diam) #? NOTE: submodule should be automatically registered in the ModuleDict of the parent class
-        # TODO: consider removing the `objective` parameter and always handling sparse matrices; there's really no benefit to dense matrices
-        if objective not in ["sparse", "dense"]:
-            raise ValueError(f"Unsupported objective: {objective}")
-        self.objective = objective
+        # add index cache for the COO indices of the sparse matrix into the IndexCache submodule (MLL is still stateless except for this)
+        self._cache = IndexCache(self.win_diam) #? NOTE: submodule should be automatically registered in the ModuleDict of the parent class
 
 
     def _compute_window_mask(self, mask: torch.Tensor) -> torch.BoolTensor:
@@ -216,47 +210,6 @@ class MattingLaplacianLoss(torch.nn.Module):
         return self.construct_laplacian_sequential(laplacian, indices, img.shape, window_mask)
 
 
-
-    # NOTE: following two functions follow the cost function defined in "Fast Matting Using Large Kernel Matting Laplacian Matrices"
-    ################################################################################################################################
-    # TODO: if keeping both implementations, I should just wrap a loss function with a decorator to switch between sparse and dense
-    def sparse_quadratic_loss(self, pastiche: torch.Tensor, laplacian: torch.sparse.Tensor):
-        """ computes the sparse quadratic form loss for the Matting Laplacian """
-        B, C, H, W = pastiche.shape
-        #loss = torch.empty(B, device=pastiche.device, requires_grad=True)
-        losses = []
-        for b in range(B):  # Iterate over batch
-            x = pastiche[b].reshape(C, -1) # shape (C, HW)
-            gradient = torch.sparse.mm(laplacian[b], x.T).T / (H * W)
-            # loss += torch.sparse.mm(x, gradient)
-            # single dot product per channel with summation over channels
-            #loss[b] = (x * gradient).sum()
-            losses.append((x * gradient).sum())
-        # TODO: (important) replace original repo's gradient clipping back to (-0.05, 0.05) in the loss manager later
-        loss = torch.stack(losses) #torch.mean(loss) #/ (H * W)  # Mean over batch
-        loss.requires_grad = True
-        return loss.mean()
-
-
-    #& MIGHT REMOVE - dense implementation just doesn't seem worth it since it always runs out of memory on any device
-    def dense_laplacian_loss(self, pastiche: torch.Tensor, laplacian: Union[torch.Tensor, torch.sparse.Tensor]):
-        """ Computes the dense quadratic form loss for the Matting Laplacian (better for back-propagation on CUDA) """
-        B, C, H, W = pastiche.shape
-        # TODO: need to work on making this usable again (not immediately running out of memory), but it's not a priority right now
-            # may forgo the dense implementation entirely and might try my luck with CUSPARSE later
-        laplacian_dense = laplacian.to_dense() if laplacian.is_sparse else laplacian
-        loss = 0
-        for c in range(C):
-            #x = pastiche[:, c, :].reshape(B, -1)  # Shape (B, C, HW) -> (B, HW)
-            x = pastiche[:, c, :].reshape(B, -1, 1)  # Shape (B, C, HW) -> (B, HW, 1)
-            #lap_x = torch.matmul(laplacian_dense, x.T).T  # Shape (B, HW)
-            grad = torch.bmm(laplacian_dense, x) / (H * W)  # Shape (B, HW, 1)
-            # loss += torch.sum(x * lap_x)  # Quadratic form: x^T L x
-            loss += torch.bmm(x, grad)
-        return loss.mean()
-    ################################################################################################################################
-
-
     def _preprocess(self, img: torch.Tensor, mask: Optional[torch.Tensor] = None):
         # leaving this here in case I want to add additional preprocessing steps to `forward()`
         if img.ndim not in [3,4]:
@@ -299,33 +252,32 @@ class MattingLaplacianLoss(torch.nn.Module):
         lap_content = self.compute_laplacian_response(content_img, mask=mask)
         lap_content = self._postprocess(lap_content)  # enable gradients for content Laplacian
         # dispatch to custom Function
-        return _MattingLaplacianFn.apply(lap_content, stylized_img)
-        # if self.objective == "sparse":
-        #     return self.sparse_quadratic_loss(stylized_img, lap_content,)
-        # else: # elif self.objective == "dense":
-        #     return self.dense_laplacian_loss(stylized_img, lap_content)
+        return MLLossFn.apply(lap_content, stylized_img)
 
 
 
-class _MattingLaplacianFn(torch.autograd.Function):
+class MLLossFn(torch.autograd.Function):
+    """
+        Custom autograd function for computing the Matting Laplacian loss and its gradient
+        - follows the same sparse quadratic form as the original project, but relies on PyTorch's autograd for differentiation
+        - uses a custom forward and backward pass to compute the loss and gradient efficiently (while scaling and clipping the gradient)
+    """
     @staticmethod
     def forward(ctx, laplacian, stylized_img):
         """ Computes both scalar loss and raw gradient w.r.t. stylized_img in one pass """
-        # compute per-sample loss and raw gradient
         B, C, H, W = stylized_img.shape
-        # TODO: might want to make the loss global and call it here while getting rid of both losses in MattingLaplacianLoss entirely
         loss_accum = 0.0
         grad = torch.zeros_like(stylized_img)
         for b in range(B):
             x = stylized_img[b].reshape(C, -1)
-            Lb = laplacian[b]  # sparse tensor
             # raw gradient: Lx / (H*W)
-            grad_b = torch.sparse.mm(Lb, x.T).T / (H * W)
+            grad_b = torch.sparse.mm(laplacian[b], x.T).T / (H * W)
             # scalar loss: x^T (L x) / (H*W)
+            # essentially a single dot product per channel with summation over channels
             loss_b = (x * grad_b).sum()
             loss_accum = loss_accum + loss_b
             grad[b] = grad_b.view_as(stylized_img[b])
-        loss = loss_accum / B
+        loss = loss_accum / B # mean over already-summed batch
         # save raw gradient for backward pass
         ctx.save_for_backward(2.0 * grad)
         return loss
@@ -338,11 +290,12 @@ class _MattingLaplacianFn(torch.autograd.Function):
         g = raw_grad * grad_output
         g = g.clamp(-0.05, 0.05)
         # propagate only into stylized_img; other inputs get None
-        return None, g, None, None
+        return None, g #, None, None
 
 
 
-class _IndexCache(torch.nn.Module):
+# TODO: might remove the inheritance from nn.Module later since the buffer logic is separate from MattingLaplacianLoss
+class IndexCache(torch.nn.Module):
     """
         Holds any number of buffers:
             - coo_{H}x{W}  : (2, H'*W'*win_size, )  flat indices
@@ -367,14 +320,12 @@ class _IndexCache(torch.nn.Module):
                 indices (Tensor): Row and column indices for the sparse matrix of shape (2, H' * W' * win_size**2)
         """
         key = (H, W)
-        # key = f"{H}x{W}"
-        # if key is present, move to the end (most recently used)
+        # if key is present, move to the end (most recently used), else build and register new indices
         if key in self._dict.keys():
             bufname = self._dict.pop(key)
             self._dict[key] = bufname
             # look up the name and return the buffer
             return getattr(self, bufname)
-        # else build new indices and register them
         # build meshgrid of indices for the patches
         patch_idx = torch.arange(H*W, device=device).view(1, H, W)
         # extract valid windows of size win_d
@@ -382,7 +333,7 @@ class _IndexCache(torch.nn.Module):
             patch_idx
             .unfold(1, self.win_d, 1).unfold(2, self.win_d, 1)
             .reshape(1, -1, self.win_size)
-        )  # (1, num_windows, win_size)
+        )  # shape: (1, num_windows, win_size)
         rows = patches.reshape(-1, 1).repeat(1, self.win_size).flatten()
         cols = patches.repeat(1, 1, self.win_size).flatten()
         idx  = torch.stack([rows, cols], dim=0)   # (2, num_windows * win_size)
@@ -390,9 +341,6 @@ class _IndexCache(torch.nn.Module):
         bufname = f"coo_{H}x{W}"
         self.register_buffer(bufname, idx) # should live on the right device (since this is a submodule of the MLL)
         self._dict[key] = bufname
-        # look up the name and return the buffer
-        #bufname = self._dict[key]
-        #return getattr(self, bufname)
         # evict oldest entry if over capacity
         if len(self._dict) > self.max_size:
             _, oldest_buf = self._dict.popitem(last=False)

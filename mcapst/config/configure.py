@@ -22,7 +22,7 @@ DEFAULT_INFERENCE_CHECKPOINTS = {
 class BaseConfig:
     base_name: Optional[str] = None
     transfer_mode: str = "photorealistic"
-    modality: str = "image"
+    modality: str = "image" # TODO: might want to set this dynamically to tell if it's video or image
 
     def __post_init__(self):
         valid_modes = ["photorealistic", "artistic", "photo", "art"]
@@ -35,12 +35,11 @@ class BaseConfig:
 # experimenting with greater encapsulation to have dataclasses dedicated to specific groups of configuration attributes
 @dataclass
 class LossConfig:
-    style_weight: Optional[float] = None
-    content_weight: Optional[float] = None
-    lap_weight: float = 1.0
+    style_weight: Optional[float] = 1.0 #None    # original project default: 1.0
+    content_weight: Optional[float] = 0.0 #None  # original project default: 0.0
+    lap_weight: float = 200.0 # original implementation used 1500 - seems way too high since most losses are on the order of 1e-3
     rec_weight: float = 10.0
-    temporal_weight: float = 0.0
-    use_lap: bool = True
+    temporal_weight: float = 0.0 # original implementation used 60.0 for video stylization - seems slightly high, so trying ~ 20.0
     vgg_ckpt: str = "checkpoints/vgg_normalised.pth"
 
     def __post_init__(self):
@@ -89,10 +88,8 @@ class TrainingConfig(BaseConfig):
     def __post_init__(self):
         super().__post_init__()  # from BaseConfig
         # for dictionary overrides, we need to ensure that the nested dataclasses are instantiated properly
-        print("[DEBUGGING] testing if post_init works right for dict inputs")
         if not isinstance(self.data_cfg, DatasetConfig):
             self.data_cfg = DatasetConfig(**self.data_cfg)
-            print(f"[DEBUGGING] data_cfg was not a DatasetConfig, converted it to one: {type(self.data_cfg)}")
         if not isinstance(self.loss_cfg, LossConfig):
             self.loss_cfg = LossConfig(**self.loss_cfg)
         # Additional checks
@@ -105,6 +102,7 @@ class TrainingConfig(BaseConfig):
 class InferenceConfig(BaseConfig):
     input_path: str = "data/test_input"
     output_path: str = "data/test_output"
+    # TODO: need to revisit this since I've changed the way alpha_c and alpha_s are used from the original implementation and they're no longer independent
     alpha_c: float = 0.0
     alpha_s: float = 0.5
     use_segmentation: bool = False
@@ -115,8 +113,11 @@ class InferenceConfig(BaseConfig):
 
     def __post_init__(self):
         super().__post_init__()  # from BaseConfig
+        if self.modality == "video" and self.use_segmentation:
+            #? NOTE: think this one only supported auto-segmentation, not manual masks, in the original implementation
+            raise NotImplementedError("Segmentation-based style transfer is not yet implemented for video data.")
         if not self.ckpt_path:
-            mode = "art" if self.transfer_mode in ["artistic", "art"] else "photo"
+            mode = "artistic" if self.transfer_mode in ["artistic", "art"] else "photorealistic"
             self.ckpt_path = DEFAULT_INFERENCE_CHECKPOINTS[mode][self.modality]
 
 
@@ -137,7 +138,6 @@ class ConfigManager:
         "batch_size": "Number of samples per batch.",
         "new_size": "Resize images to this size before processing.",
         "crop_size": "Crop images to this size after resizing.",
-        "use_lap": "Enable Matting Laplacian loss for style transfer.",
         "lr": "Learning rate for optimization.",
         "lr_decay": "Decay rate for learning rate.",
         "style_weight": "Weight for style loss component.",
@@ -227,8 +227,8 @@ class ConfigManager:
         add_dataclass_args(self.config, prefix="")
         # if training or inference has nested dataclasses, parse them
         if isinstance(self.config, TrainingConfig):
-            print("Data Config type: ", type(self.config.data_cfg))
-            print("Loss Config type: ", type(self.config.loss_cfg))
+            # print("Data Config type: ", type(self.config.data_cfg))
+            # print("Loss Config type: ", type(self.config.loss_cfg))
             add_dataclass_args(self.config.data_cfg, prefix="data_cfg.")
             add_dataclass_args(self.config.loss_cfg, prefix="loss_cfg.")
         elif isinstance(self.config, InferenceConfig):

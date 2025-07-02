@@ -2,6 +2,7 @@ from typing import Union, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from collections import OrderedDict
 
 
 
@@ -25,6 +26,7 @@ class TemporalLoss(nn.Module):
         """
         super(TemporalLoss, self).__init__()
         self.MSE = torch.nn.MSELoss()
+        self.mesh_cache = MeshGridCache(max_size=8)
         self.use_fake_flow = use_fake_flow
         self.warp_flag = warp_flag
         self.noise_level = noise_level
@@ -48,16 +50,12 @@ class TemporalLoss(nn.Module):
         else:
             raise ValueError("No optical flow model provided.")
 
-    @staticmethod
-    def warp(x: torch.Tensor, flo: torch.Tensor, padding_mode: str = 'border') -> torch.Tensor:
+    def warp(self, x: torch.Tensor, flo: torch.Tensor, padding_mode: str = 'border') -> torch.Tensor:
         """ warp tensor x according to flow, which is shape (B,2,H,W) in [-1,1] """
         B, C, H, W = x.size()
-        # Mesh grid
-        xx = torch.arange(0, W, device=x.device).view(1, -1).repeat(H, 1)
-        yy = torch.arange(0, H, device=x.device).view(-1, 1).repeat(1, W)
-        xx = xx.view(1, 1, H, W).repeat(B, 1, 1, 1) # shape (B,1,H,W)
-        yy = yy.view(1, 1, H, W).repeat(B, 1, 1, 1) # shape (B,1,H,W)
-        grid = torch.cat((xx, yy), dim=1).float()
+        # get base grid from mesh cache
+        grid2d = self.mesh_cache.get_grid(H, W, x.device)
+        grid = grid2d.unsqueeze(0).expand(B, -1, -1, -1)
         # flow is from first_frame -> second_frame, so we compute "vgrid = base - flow" to align "first_frame" with "second_frame".
         vgrid = grid - flo
         # scale grid to [-1,1]
@@ -84,12 +82,10 @@ class TemporalLoss(nn.Module):
         """ Creates a 'fake' second frame + flow from first_frame """
         B, C, H, W = first_frame.shape
         # generate random flow
-        flow_2d = self._generate_fake_flow(H, W).to(first_frame.device)
-        print("shape of flow_2d: ", flow_2d.shape)
+        flow_2d = self._generate_fake_flow(H, W).to(first_frame.device) # shape (2,H,W)
         # repeat for the batch dimension
-        flow_4d = flow_2d.unsqueeze(0).expand(B, -1, -1, -1)  # (B,2,H,W)
+        flow_4d = flow_2d.unsqueeze(0).expand(B, -1, -1, -1)  # shape (B,2,H,W)
         # warp first_frame => second_frame
-        print("shape of flow_4d: ", flow_4d.shape)
         second_frame = self.warp(first_frame, flow_4d)
         # optionally add some random noise
         if self.noise_level > 0:
@@ -99,20 +95,16 @@ class TemporalLoss(nn.Module):
     def _generate_fake_flow(self, height: int, width: int) -> torch.Tensor:
         """ the original implementation's logic: random normal, random shift, large blur => "fake" motion """
         if self.motion_level > 0:
-            # shape [2,H,W]
-            flow = torch.normal(0, self.motion_level, size=(2, height, width))
-            print("shape of flow before shift: ", flow.shape)
+            flow = torch.normal(0, self.motion_level, size=(2, height, width)) # shape (2,H,W)
             flow += torch.randint(-self.shift_level, self.shift_level + 1, size=(2, height, width))
-            print("shape of flow after shift: ", flow.shape)
             # approximate smoothing with very large kernel
             #flow = F.avg_pool2d(flow.unsqueeze(0), kernel_size=100, stride=1, padding=50, ceil_mode=True).squeeze(0)
-            #! may not work as intended since a large kernel may be needed to avoid artifacts
-            flow = F.adaptive_avg_pool2d(flow.unsqueeze(0), (height, width)).squeeze(0)
-            print("generating fake flow with shape: ", flow.shape)
+            #! REVISIT LATER - may not work as intended since a large kernel may be needed to avoid artifacts
+            flow = F.adaptive_avg_pool2d(flow.unsqueeze(0), (height, width)).squeeze(0) # shape (2,H,W)
         else:
             # fallback using constant flow
             flow = torch.ones(2, height, width) * torch.randint(-self.shift_level, self.shift_level + 1, (1,))
-            print("generating constant flow with shape: ", flow.shape)
+            # print("generating constant flow with shape: ", flow.shape)
         return flow # shape (2,H,W)
 
     def _add_gaussian_noise(self, tensor: torch.Tensor, mean: float = 0, stddev: float = 1e-3) -> torch.Tensor:
@@ -149,3 +141,32 @@ class TemporalLoss(nn.Module):
         # compute L1 difference
         temporal_loss, _ = self.compute_temporal_loss(seqA, seqB, flow)
         return temporal_loss
+
+
+
+# pretty similar logic as the IndexCache in matting_laplacian.py
+# TODO: abstract to a new `TensorCache` class (which accepts callables) to be used by both loss classes later
+class MeshGridCache:
+    """ LRU cache for mesh grids to avoid recomputing meshes of the same shape frequently """
+    def __init__(self, max_size: int = 8):
+        self.max_size = max_size
+        self.cache = OrderedDict()
+
+    def get_grid(self, H: int, W: int, device: torch.device):
+        key = (H, W, device)
+        # if key is present, move to the end (most recently used), else build and register new mesh grid
+        if key in self.cache:
+            grid = self.cache.pop(key)
+            self.cache[key] = grid
+            return grid
+        # mesh grid using torch.meshgrid
+        yy, xx = torch.meshgrid(
+            torch.arange(H, device=device),
+            torch.arange(W, device=device),
+            indexing='ij'
+        )
+        grid = torch.stack((xx, yy), dim=0).float()  # shape (2, H, W)
+        self.cache[key] = grid
+        if len(self.cache) > self.max_size:
+            self.cache.popitem(last=False)
+        return grid

@@ -129,18 +129,22 @@ def test_major_refactor_inference():
     config = {
         "base_name": "test_infer",
         "transfer_mode": "photorealistic",
+        "modality": "image",  # "video",
+        #"ckpt_path": os.path.join(ckpt_dir, "photo_image.pt"), # __post_init__ sets defaults
         "input_path": "data/content/01.jpg",
         "output_path": "data/test_output",
-        "alpha_c": 0.5,
+        "alpha_c": 0.0,
         "alpha_s": 0.5,
         "use_segmentation": False,
-        "mask_path": None
+        "mask_path": None,
+        "max_size": 960,
     }
     # Save configuration
     with open(config_path, "w") as file:
         yaml.dump(config, file)
     # Run inference
-    stage_inference_pipeline(mode="inference", config_path=config_path)
+    results = stage_inference_pipeline(config_path=config_path)
+    print(f"Inference results: {results}")
 
 
 

@@ -1,6 +1,7 @@
+
 import os
+from abc import ABC, abstractmethod
 import torch
-from tqdm import tqdm
 from typing import Dict, Optional, Union, List, Any
 from torchvision.io import read_image, write_jpeg, ImageReadMode
 from torchvision.transforms.v2 import Compose, ToDtype, Lambda, Resize
@@ -17,7 +18,7 @@ TRANSFER_MODE_ALIASES = {
     "artistic": "art",
 }
 
-class InferenceBase:
+class InferenceBase(ABC):
     """ Base class for performing inference using trained style transfer models.
         Subclasses should implement domain-specific logic (e.g., image vs. video).
     """
@@ -38,9 +39,32 @@ class InferenceBase:
         # Create stylizer instance with a factory method to differentiate between base image, masked image, or video stylizers.
         self.stylizer = self._load_stylizer()
 
+    @abstractmethod
     def _validate_config(self):
         """ should be overridden by subclasses to validate config parameters for specific inference tasks """
         pass
+
+    @abstractmethod
+    def _load_stylizer(self):
+        """ factory method to create the appropriate stylizer object. Subclasses may override to handle more specific use cases """
+        raise NotImplementedError("Subclasses must implement `_load_stylizer` to return a stylizer instance for the specific data modality.")
+
+    @abstractmethod
+    def run_inference(self, *args, **kwargs):
+        """ High-level pipeline for performing inference, to be overridden by subclasses.
+            The typical sequence should be:
+                1. gather input data
+                2. transform (style transfer)
+                3. save or return outputs
+        """
+        raise NotImplementedError("Subclasses must implement `run_inference` to define the inference pipeline.")
+
+    @abstractmethod
+    def _parse_run_inputs(self, *args, **kwargs) -> Dict[str, Any]:
+        """ base method that child classes may override for unique argument logic.
+            By default, it does nothing or raises exception if not overridden.
+        """
+        raise NotImplementedError("Subclasses must implement `_parse_run_inputs` to handle specific input-parsing logic.")
 
     def _normalize_mode(self, mode: str):
         """ ensure self.config.transfer_mode is one of {'art', 'photo'} """
@@ -51,25 +75,6 @@ class InferenceBase:
                 self.config.transfer_mode = TRANSFER_MODE_ALIASES[mode]
             except KeyError:
                 raise ValueError(f"Invalid transfer mode: '{mode}'!\nExpected one of {all_modes}.")
-
-    def _load_stylizer(self):
-        """ factory method to create the appropriate stylizer object. Subclasses may override to handle more specific use cases """
-        raise NotImplementedError
-
-    def run_inference(self, *args, **kwargs):
-        """ High-level pipeline for performing inference, to be overridden by subclasses.
-            The typical sequence should be:
-                1. gather input data
-                2. transform (style transfer)
-                3. save or return outputs
-        """
-        raise NotImplementedError
-
-    def _parse_run_inputs(self, *args, **kwargs) -> Dict[str, Any]:
-        """ base method that child classes may override for unique argument logic.
-            By default, it does nothing or raises exception if not overridden.
-        """
-        raise NotImplementedError("Subclasses must implement `_parse_run_inputs` to handle specific input-parsing logic.")
 
     def save_pastiche_to_disk(self, pastiche: torch.Tensor, output_path: str):
         write_jpeg(pastiche.clamp(0,1).mul(255).byte().cpu(), output_path)
@@ -141,29 +146,22 @@ class ImageInference(InferenceBase):
     def run_inference(self, *args, **kwargs) -> List[torch.Tensor]:
         """ reads images from self.config.input_path, applies style transfer, and saves to self.config.output_path """
         parsed = self._parse_run_inputs(*args, **kwargs)
-        input_files = parsed["input_files"]
-        style_files = parsed["style_files"]
-        alpha_c     = parsed["alpha_c"]
-        alpha_s     = parsed["alpha_s"]
-        save_output = parsed["save_output"]
-        output_path = parsed["output_path"]
         # NOTE: while I could return this as a single batch tensor, it would be way less flexible for variable-sized images
         stylized_images = []
-        for idx, img_path in enumerate(input_files):
+        for idx, img_path in enumerate(parsed["input_files"]):
             content_tensor = self.preprocessor(read_image(img_path, ImageReadMode.RGB))
-            # The stylizer.transform(...) method uses the @transform_preprocess
-            # decorator and is typically: transform(sample=..., style_paths=..., alpha_s=..., ...)
-            # In a real scenario, you’d pass in your actual style images or style mask paths:
+            # `stylizer.transform` method uses the @transform_preprocess decorator and is typically:
+                # transform(sample=..., style_paths=..., alpha_s=..., ...)
+            # in a real scenario, you’d pass in your actual style images or style mask paths:
             pastiche = self.stylizer.transform(
-                sample=content_tensor,
-                style_paths=style_files,  # Example usage
-                alpha_c=alpha_c,
-                alpha_s=alpha_s,
+                sample = content_tensor,
+                style_paths = parsed["style_files"],
+                alpha_c = parsed["alpha_c"],
+                alpha_s = parsed["alpha_s"],
                 # mask_paths=..., or use_segmentation=..., etc. if relevant
             )
-            if save_output:
-                out_name = os.path.join(output_path, os.path.basename(img_path))
-                print("pastiche shape: ", pastiche.shape)
+            if parsed["save_output"]:
+                out_name = os.path.join(parsed["output_path"], os.path.basename(img_path))
                 self.save_pastiche_to_disk(pastiche.squeeze(0), out_name)
             # TODO: need to make this more consistent with the video inference output later
             stylized_images.append(pastiche)
@@ -216,29 +214,24 @@ class VideoInference(InferenceBase):
     def run_inference(self, *args, **kwargs) -> List[torch.Tensor]:
         """ Returns a list of stylized tensors, or an empty list if 'save_output=True', since the stylizer internally saves by default """
         parsed = self._parse_run_inputs(*args, **kwargs)
-        video_list   = parsed["video_list"]
-        alpha_c      = parsed["alpha_c"]
-        alpha_s      = parsed["alpha_s"]
-        save_output  = parsed["save_output"]
-        output_path  = parsed["output_path"]
         stylized_results: List[torch.Tensor] = []
-        for video_path in video_list:
+        for video_path in parsed["video_list"]:
             # pass a video path directly into stylizer.transform, where it internally does reading and batch processing
-            out_name = os.path.join(output_path, os.path.basename(video_path)) if save_output else None
+            out_name = os.path.join(parsed["output_path"], os.path.basename(video_path)) if parsed["save_output"] else None
             # if BaseVideoStylizer returns the frames, we store them in stylized_results
             # TODO: need to refactor how these stylizers are loaded to allow users to pass in custom postprocessors and other arguments
             stylized_frames = self.stylizer.transform(
                 sample=video_path,
                 # TODO: add a sampler to select style images from a default directory defined in the config
                 # !! Remove later - temporaryly hard-coded to use the same style image for all videos
-                style_paths=[os.path.realpath(r"data/style/01.jpg")],   # or pass something else
-                alpha_c=alpha_c,
-                alpha_s=alpha_s,
-                save_output=save_output,    # let stylizer write to disk if True
+                style_paths = [os.path.realpath(r"data/style/01.jpg")],   # or pass something else
+                alpha_c = parsed["alpha_c"],
+                alpha_s = parsed["alpha_s"],
+                save_output = parsed["save_output"],    # let stylizer write to disk if True
                 output_path=out_name,
             )
             # stylized_frames might be large, so the user may prefer not to hold them in memory
-            if not save_output:
+            if not parsed["save_output"]:
                 stylized_results.append(stylized_frames)
         return stylized_results # may be list of tensors or empty list if save_output=True
 

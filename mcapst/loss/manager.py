@@ -29,7 +29,7 @@ class LossManager:
         self.temporal_loss = TemporalLoss() if self.temporal_weight > 0 else None
         self.style_encoder = style_encoder if style_encoder is not None else VGG19(config.vgg_ckpt)  # Store style encoder or use default VGG19
         # NOTE: using win_rad = 1 because only 3x3 kernels are supported for now - the original never supported larger kernels either
-        self.laplacian_loss_module = MattingLaplacianLoss(win_rad=1, objective="sparse") if self.lap_weight > 0 else None
+        self.laplacian_loss_module = MattingLaplacianLoss(win_rad=1) if self.lap_weight > 0 else None
 
     @staticmethod
     def _toggle_grad(*args):
@@ -62,9 +62,9 @@ class LossManager:
             raise NotImplementedError("Masking is not implemented for Laplacian loss yet.")
         if weight == 0:
             return torch.tensor(0.0, device=content_img.device, requires_grad=True)
-        return weight * self.laplacian_loss_module(content_img, stylized_img)
+        return weight * self.laplacian_loss_module(content_img, stylized_img, mask)
 
-    def _compute_content_style_loss(self, content_img, style_img, stylized_img, cweight=1.0, sweight=1.0):
+    def _compute_content_style_loss(self, content_img, style_img, stylized_img, cweight=0.0, sweight=1.0):
         """ Computes both content and style losses using the style encoder. """
         # NOTE: content_weight is only passed here so that the encoder avoids computing the content loss if content_weight == 0 (from original authors)
         # TODO: inputs might absolutely have to have shape [256,256] since the VGG19 model is trained on 256x256 images
