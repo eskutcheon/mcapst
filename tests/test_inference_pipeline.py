@@ -6,7 +6,7 @@ import pytest
 import torch
 # local imports
 from mcapst.config.configure import InferenceConfig
-from mcapst.pipelines.infer import stage_inference_pipeline, ImageInference, VideoInference
+from mcapst.pipelines.infer import stage_inference_pipeline, ImageInferenceOrchestrator, VideoInferenceOrchestrator
 
 
 @pytest.fixture
@@ -31,7 +31,7 @@ def test_image_inference_pipeline_cli(sample_image_path):
             transfer_mode="photorealistic",  # or "artistic"
         )
         # pass directly to stage_inference_pipeline as a dict or call stage_inference_pipeline() with a YAML file
-        results = ImageInference(config).run_inference()
+        results = ImageInferenceOrchestrator(config).run_inference()
         # check that results is a list of stylized images
         assert len(results) > 0, "No images returned by inference."
         # check that a file was written
@@ -51,7 +51,7 @@ def test_video_inference_pipeline_cli(sample_video_path):
             alpha_s=0.5,
             transfer_mode="artistic",
         )
-        results = VideoInference(config).run_inference()
+        results = VideoInferenceOrchestrator(config).run_inference()
         # In the default code, if save_output=True, stylized frames
         # might not be returned (or might be empty). That's okay, let's just see
         # that no error occurred and we wrote a file.
@@ -84,7 +84,7 @@ def test_stage_inference_pipeline_dict_override(sample_image_path):
         # config.ckpt_path = "checkpoints/art_image.pt"
 
         # Now call the pipeline
-        runner = ImageInference(config)
+        runner = ImageInferenceOrchestrator(config)
         results = runner.run_inference()
         assert len(results) > 0
         assert os.listdir(tmpdir), "Expected stylized image output."

@@ -18,7 +18,7 @@ TRANSFER_MODE_ALIASES = {
     "artistic": "art",
 }
 
-class InferenceBase(ABC):
+class BaseInferenceOrchestrator(ABC):
     """ Base class for performing inference using trained style transfer models.
         Subclasses should implement domain-specific logic (e.g., image vs. video).
     """
@@ -89,7 +89,7 @@ class InferenceBase(ABC):
 
 
 
-class ImageInference(InferenceBase):
+class ImageInferenceOrchestrator(BaseInferenceOrchestrator):
     """ High-level inference class for image-based style transfer.
         essentially a wrapper around one of
         - BaseImageStylizer
@@ -101,7 +101,7 @@ class ImageInference(InferenceBase):
     def _validate_config(self):
         """ Validates necessary parameters for image inference. """
         if self.config.modality != "image":
-            raise ValueError("ImageInference should only be used for image inference tasks.")
+            raise ValueError("ImageInferenceOrchestrator should only be used for image inference tasks.")
 
     def _load_stylizer(self):
         """ selects either BaseImageStylizer or MaskedImageStylizer depending on config.use_segmentation """
@@ -168,7 +168,7 @@ class ImageInference(InferenceBase):
         return stylized_images
 
 
-class VideoInference(InferenceBase):
+class VideoInferenceOrchestrator(BaseInferenceOrchestrator):
     """ High-level inference class for video-based style transfer that wraps BaseVideoStylizer or a future masked video stylizer """
     def __init__(self, config: Union[InferenceConfig, dict]):
         super().__init__(config)
@@ -245,9 +245,9 @@ def stage_inference_pipeline(config_path: Optional[str] = None):
     config = config_manager.get_config()
     # routes to the correct inference class based on modality (image or video)
     if config.modality == "image":
-        runner = ImageInference(config)
+        runner = ImageInferenceOrchestrator(config)
     elif config.modality == "video":
-        runner = VideoInference(config)
+        runner = VideoInferenceOrchestrator(config)
     else:
         raise ValueError(f"Unsupported modality: {config.modality}")
     # By default, run with no direct overrides => read from config

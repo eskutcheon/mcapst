@@ -2,8 +2,8 @@ from typing import Union, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from collections import OrderedDict
-
+# helper class for mesh grid caching
+from mcapst.utils.loss_utils import MeshGridCache
 
 
 
@@ -54,7 +54,7 @@ class TemporalLoss(nn.Module):
         """ warp tensor x according to flow, which is shape (B,2,H,W) in [-1,1] """
         B, C, H, W = x.size()
         # get base grid from mesh cache
-        grid2d = self.mesh_cache.get_grid(H, W, x.device)
+        grid2d = self.mesh_cache.get(H, W, x.device)
         grid = grid2d.unsqueeze(0).expand(B, -1, -1, -1)
         # flow is from first_frame -> second_frame, so we compute "vgrid = base - flow" to align "first_frame" with "second_frame".
         vgrid = grid - flo
@@ -141,32 +141,3 @@ class TemporalLoss(nn.Module):
         # compute L1 difference
         temporal_loss, _ = self.compute_temporal_loss(seqA, seqB, flow)
         return temporal_loss
-
-
-
-# pretty similar logic as the IndexCache in matting_laplacian.py
-# TODO: abstract to a new `TensorCache` class (which accepts callables) to be used by both loss classes later
-class MeshGridCache:
-    """ LRU cache for mesh grids to avoid recomputing meshes of the same shape frequently """
-    def __init__(self, max_size: int = 8):
-        self.max_size = max_size
-        self.cache = OrderedDict()
-
-    def get_grid(self, H: int, W: int, device: torch.device):
-        key = (H, W, device)
-        # if key is present, move to the end (most recently used), else build and register new mesh grid
-        if key in self.cache:
-            grid = self.cache.pop(key)
-            self.cache[key] = grid
-            return grid
-        # mesh grid using torch.meshgrid
-        yy, xx = torch.meshgrid(
-            torch.arange(H, device=device),
-            torch.arange(W, device=device),
-            indexing='ij'
-        )
-        grid = torch.stack((xx, yy), dim=0).float()  # shape (2, H, W)
-        self.cache[key] = grid
-        if len(self.cache) > self.max_size:
-            self.cache.popitem(last=False)
-        return grid

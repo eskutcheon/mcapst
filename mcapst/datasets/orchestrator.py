@@ -40,9 +40,9 @@ class DataManager:
         ])
         self.content_loader = self._build_loader(config.train_content, "content", preprocessor)
         self.style_loader = self._build_loader(config.train_style, "style", preprocessor)
-        # using itertools.cycle to replace the InfiniteSampler from the old code
-        # TODO: might just want to make the BaseImageDataset class into an infinite dataset setup
+        # TODO: might just want to make the BaseImageDataset class into an infinite dataset setup (since it already doesn't use epochs)
             # will be necessary after adding more parallelism arguments to the loaders
+        # using itertools.cycle to replace the InfiniteSampler from the old code
         self.content_iter = cycle(self.content_loader)
         self.style_iter = cycle(self.style_loader)
 
@@ -67,7 +67,8 @@ class DataManager:
                       loader_type: Optional[Literal["content", "style"]] = "content",
                       preprocessor: Optional[Callable] = None) -> DataLoader:
         # setting num_workers based on CPU count:
-        # FIXME: won't work with pickling since the datasets have generators, but it'd be a lot slower without it - might just need to write a custom sampler
+        #! FIXME: won't work with pickling since the datasets have generators, but it'd be a lot slower without it - might just need to write a custom sampler
+            # TODO: maybe add the streaming piped dataloader I wrote for the feature space analysis project
         #num_workers = 2**math.floor(math.log2(cpu_count())) if cpu_count() > 1 else 0
         if root_or_name is None:
             root_or_name = get_default_datasets(self.transfer_mode)[f"train_{loader_type}"]

@@ -36,7 +36,8 @@ def main():
         "resume": False,
         "logs_directory": "logs",
         "model_save_interval": 100,
-        "log_interval": 1,
+        "log_interval": 5,  # log every 5 iterations
+        "grad_max_norm": 5.0,
     }
     with open(config_path, "w") as file:
         yaml.dump(config, file)

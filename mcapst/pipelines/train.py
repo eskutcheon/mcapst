@@ -9,6 +9,7 @@ from mcapst.models.VGG import VGG19
 from mcapst.datasets.orchestrator import DataManager
 from mcapst.config.configure import ConfigManager, TrainingConfig
 from mcapst.loss.manager import LossManager
+from mcapst.utils.loss_utils import RunningMeanLoss
 
 
 TRANSFER_MODE_ALIASES = {
@@ -27,8 +28,6 @@ class TrainerBase:
         self.current_iter = 0
         self.total_iterations = self.config.training_iterations # + self.config.fine_tuning_iterations
         self.writer = SummaryWriter(log_dir=self.config.logs_directory)
-        # TODO: replace with the use of a stylizer class in data.managers later
-        #self.transfer_module = CAPVSTNet(max_size=self.config.new_size, train_mode=True)
         self.data_manager = DataManager(self.config.transfer_mode, self.config.data_cfg)
         style_encoder: Callable = VGG19(self.config.loss_cfg.vgg_ckpt).to(device=self.device)
         self.loss_manager = LossManager(self.config.loss_cfg, style_encoder=style_encoder)
@@ -36,6 +35,8 @@ class TrainerBase:
             # would probably need to immediately save a model to a checkpoint after initialization to pass as a checkpoint to the stylizer class
         self.model = None
         self.optimizer = None
+        # small container class for tracking running means of losses (primarily for logging purposes)
+        self.mean_losses = RunningMeanLoss()
 
 
     def _validate_config(self):
@@ -84,11 +85,17 @@ class TrainerBase:
 
     @staticmethod
     def get_loss_log_string(losses: Dict[str, float]) -> str:
-        loss_str = " | ".join([f"{k}: {v:.4}" for k, v in losses.items() if v > 0])
-        return f"({loss_str}) \t Progress"
+        # format losses and pad to align 'Progress'
+        nonzero_losses = {k: v for k, v in losses.items() if v > 0}
+        loss_str = ' | '.join([f'{k}: {v:.4}' for k, v in nonzero_losses.items()])
+        prefix = f"[ Mean Losses ({loss_str}) ]"
+        # pad to rough character length, then append Progress
+        padding = max(int(22 * len(nonzero_losses)), len(prefix) + 10)  # adjust padding based on number of losses
+        padded = prefix.ljust(padding)
+        return f"{padded} Progress"
 
     def _log_progress(self, losses):
-        if self.current_iter % self.config.log_interval == 0:
+        if (self.current_iter + 1) % self.config.log_interval == 0:
             self.writer.add_scalar("Total Loss", losses["total"], self.current_iter)
 
 
@@ -97,7 +104,7 @@ class ImageTrainer(TrainerBase):
     def __init__(self, config: Union[TrainingConfig, Dict[str, Any]]):
         super().__init__(config)
         from mcapst.stylizers.image_stylizers import BaseImageStylizer
-        # TODO: if I keep using stylizer classes, I'll have to add some staging for choosing this or the MaskedImageStylizer class
+        # TODO: if I keep using stylizer classes in this way, I'll have to add some staging for choosing this or the MaskedImageStylizer class
         self.transfer_module = BaseImageStylizer(
             mode=self.config.transfer_mode,
             ckpt=self.config.ckpt_path,
@@ -115,9 +122,13 @@ class ImageTrainer(TrainerBase):
     def train(self):
         #!! FIXME: align with the old implementation since now alpha_c and alpha_s are treated differently after my major refactor for inference
             #! might require new config options
+        # TODO: go back to using the default alpha_c and alpha_s from the original CAP-VSTNet repo to separate their logic from the content-style loss weights
         alpha_c = self.config.loss_cfg.content_weight
         alpha_s = self.config.loss_cfg.style_weight
-        pbar = tqdm(range(self.current_iter, self.total_iterations), desc="Training Progress")
+        model_save_interval = self.config.model_save_interval
+        log_interval = self.config.log_interval
+        grad_clip_magnitude = getattr(self.config, "grad_max_norm", 5.0)  # default value if not specified
+        pbar = tqdm(range(self.current_iter, self.total_iterations), miniters=log_interval, desc="Training Progress")
         for _ in pbar:
             content_batch, style_batch = self.data_manager.get_next_batches()
             content_batch = content_batch["img"].to(self.device)
@@ -126,17 +137,20 @@ class ImageTrainer(TrainerBase):
             stylized_batch = self.transfer_module.transform(content_batch, [style_batch], alpha_c = alpha_c, alpha_s = alpha_s)
             self.optimizer.zero_grad()
             losses = self.loss_manager.compute_losses(content_batch, style_batch, stylized_batch)
+            self.mean_losses.update(losses)
             # back-propagation gradient computation and optimization
-            total_loss = losses["total"]
+            total_loss: torch.Tensor = losses["total"]
             total_loss.backward()
-            # TODO: might want to add the gradient clipping magnitude to the config options
-            nn.utils.clip_grad_norm_(self.model.parameters(), 5)
+            nn.utils.clip_grad_norm_(self.model.parameters(), grad_clip_magnitude)
             self.optimizer.step()
-            # logging and checkpointing steps
-            pbar.set_description(self.get_loss_log_string(losses))
+            # logging and checkpointing steps (only log every log_interval iterations)
+            if (self.current_iter + 1) % log_interval == 0:
+                loss_str = self.get_loss_log_string(self.mean_losses.get_means())
+                pbar.set_description(loss_str, refresh=False)
+            #pbar.set_postfix({k: f"{v:.4f}" for k,v in losses.items()})
             self._log_progress(losses)
             # save model checkpoints - would be refactored more like my semantic segmentation project if I switch to epochs instead of iterations
-            if self.current_iter % self.config.model_save_interval == 0:
+            if self.current_iter % model_save_interval == 0:
                 self._save_checkpoint()
             self.current_iter += 1
 
@@ -161,6 +175,7 @@ class VideoTrainer(TrainerBase):
             max_size=self.config.data_cfg.new_size,
             train_mode=True
         )
+        # TODO: revisit how this is used later - the stylizer below was primarily made for inference and isn't currently suited to training
         # from mcapst.data.managers import BaseVideoStylizer
         # self.transfer_module = BaseVideoStylizer(
         #     mode=self.config.transfer_mode,
@@ -179,7 +194,10 @@ class VideoTrainer(TrainerBase):
             #! -- might require new config options
         alpha_c = self.config.loss_cfg.content_weight
         alpha_s = self.config.loss_cfg.style_weight
-        pbar = tqdm(range(self.current_iter, self.total_iterations), desc="Video Training Progress")
+        model_save_interval = self.config.model_save_interval
+        grad_clip_magnitude = getattr(self.config, "grad_max_norm", 5.0)  # default value if not specified
+        log_interval = self.config.log_interval
+        pbar = tqdm(range(self.current_iter, self.total_iterations), miniters=log_interval, desc="Training Progress")
         for _ in pbar:
             #! PLACEHOLDER: need to implement a new data manager for video frames and find a good video dataset
             content_batch, style_batch = self.data_manager.get_next_batches()
@@ -188,19 +206,22 @@ class VideoTrainer(TrainerBase):
             # Forward pass
             stylized_batch = self.transfer_module.transform(content_batch, [style_batch], alpha_c = alpha_c, alpha_s = alpha_s)
             temp_stylizer_callback = lambda x: self.transfer_module.transform(x, [style_batch], alpha_c = alpha_c, alpha_s = alpha_s)
-            losses = self.loss_manager.compute_losses(content_batch, style_batch, stylized_batch, stylizer_callback=temp_stylizer_callback)
-            # Backward and optimize
-            total_loss = losses["total"]
             self.optimizer.zero_grad()
+            losses = self.loss_manager.compute_losses(content_batch, style_batch, stylized_batch, stylizer_callback=temp_stylizer_callback)
+            self.mean_losses.update(losses)
+            # Back-propagation and optimization
+            total_loss: torch.Tensor = losses["total"]
             total_loss.backward()
-            # TODO: might want to add the gradient clipping magnitude to the config options
-            nn.utils.clip_grad_norm_(self.model.parameters(), 5)
+            nn.utils.clip_grad_norm_(self.model.parameters(), grad_clip_magnitude)
             self.optimizer.step()
-            # logging and checkpointing steps
-            pbar.set_description(self.get_loss_log_string(losses))
+            # logging and checkpointing steps (only log every log_interval iterations)
+            if (self.current_iter + 1) % log_interval == 0:
+                # TODO: might just want to add this to _log_progress() for simplicity (but full logging may not always be done)
+                loss_str = self.get_loss_log_string(self.mean_losses.get_means())
+                pbar.set_description(loss_str, refresh=False)
             self._log_progress(losses)
             # save model checkpoints - would be refactored more like my semantic segmentation project if I switch to epochs instead of iterations
-            if self.current_iter % self.config.model_save_interval == 0:
+            if self.current_iter % model_save_interval == 0:
                 self._save_checkpoint()
             self.current_iter += 1
 

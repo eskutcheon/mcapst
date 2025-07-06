@@ -2,11 +2,16 @@ import os
 import argparse
 import datetime
 import yaml
-from typing import Dict, Union, Optional, Type
+from typing import Dict, Union, Optional, Type, Literal
 from dataclasses import dataclass, field, fields
 
 
-# TODO: need to write a setup script to download the default checkpoints to the top level data/ directory if they don't exist
+# TODO: replace a lot of this with argparse-dataclass or fancy-dataclass instances to replace some of the argparse boilerplate
+# TODO: also should create some custom types (e.g. natural_number for int >= 1, normed_float for float in [0,1], etc.)
+
+
+# TODO: need to write some helper functions to call in setup.py to download the default checkpoints to the top level data/ directory if they don't exist
+    # may go a different direction depending on how I handle this in the next few weeks
 DEFAULT_INFERENCE_CHECKPOINTS = {
     "artistic": {
         "image": "checkpoints/art_image.pt",
@@ -22,7 +27,7 @@ DEFAULT_INFERENCE_CHECKPOINTS = {
 class BaseConfig:
     base_name: Optional[str] = None
     transfer_mode: str = "photorealistic"
-    modality: str = "image" # TODO: might want to set this dynamically to tell if it's video or image
+    modality: Literal['image', 'video'] = "image"
 
     def __post_init__(self):
         valid_modes = ["photorealistic", "artistic", "photo", "art"]
@@ -82,6 +87,7 @@ class TrainingConfig(BaseConfig):
     # the number of batches the trainer goes through - might want to refactor to use epochs eventually, but the original authors used this
     training_iterations: int = 160000
     model_save_interval: int = 10000
+    grad_max_norm: float = 5.0  # gradient clipping max norm
     # destination path with default name based on current date and time or if provided while resume is True, the path to the checkpoint to resume from
     ckpt_path: str = field(default_factory=lambda: os.path.join("checkpoints", f"{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.pt"))
 
@@ -92,24 +98,31 @@ class TrainingConfig(BaseConfig):
             self.data_cfg = DatasetConfig(**self.data_cfg)
         if not isinstance(self.loss_cfg, LossConfig):
             self.loss_cfg = LossConfig(**self.loss_cfg)
+        if self.loss_cfg.temporal_weight > 0.0 and self.modality != "video":
+            print("WARNING: temporal_weight > 0.0 but modality is not 'video'. This will have no effect.")
+            self.loss_cfg.temporal_weight = 0.0  # reset to 0.0 if not video
+        elif self.loss_cfg.temporal_weight == 0.0 and self.modality == "video":
+            raise ValueError("temporal_weight must be > 0.0 for video stylization. Please specify a positive value or omit the argument.")
         # Additional checks
         if self.training_iterations < 1 or not isinstance(self.training_iterations, int):
             raise ValueError("training_iterations must be an integer >= 1.")
         if self.model_save_interval <= 0 or not isinstance(self.model_save_interval, int):
             raise ValueError("model_save_interval must be an integer > 0.")
 
+
 @dataclass
 class InferenceConfig(BaseConfig):
     input_path: str = "data/test_input"
     output_path: str = "data/test_output"
     # TODO: need to revisit this since I've changed the way alpha_c and alpha_s are used from the original implementation and they're no longer independent
+        # they're implicitly normalized in the StyleWeights dataclass now, but that kind of "hidden" behavior might not be ideal for other users
     alpha_c: float = 0.0
     alpha_s: float = 0.5
     use_segmentation: bool = False
     mask_path: Optional[str] = None
     max_size: int = 1280
     ckpt_path: str = ""
-    # TODO: maybe add regularization options for cWCT during inference
+    # TODO: maybe add regularization options for cWCT during inference (low priority since ridge regression works fine for now)
 
     def __post_init__(self):
         super().__post_init__()  # from BaseConfig
@@ -130,7 +143,7 @@ CONFIG_REGISTRY: Dict[str, Type[BaseConfig]] = {
 
 
 class ConfigManager:
-    # TODO: might have to refactor with nested dictionaries to reflect the new dataclasses like LossConfig
+    # TODO: might move this to a separate file if I further separate config definitions from the argument parsing logic
     HELP_MESSAGES = {
         "train_content": "Path to the content dataset for training.",
         "train_style": "Path to the style dataset for training.",
@@ -158,6 +171,7 @@ class ConfigManager:
         "log_interval": "Interval for logging training progress.",
         "use_local_datasets": "Whether to use local datasets instead of HuggingFace datasets.",
         "max_size": "Maximum size for input images during inference.",
+        "grad_max_norm": "Maximum norm for gradient clipping during training.",
         # TODO: add remaining config options here
     }
 

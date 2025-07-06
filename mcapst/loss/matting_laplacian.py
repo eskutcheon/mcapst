@@ -1,8 +1,8 @@
 
-from typing import Dict, Union, Literal, List, Optional, Sequence
-from collections import OrderedDict
+from typing import List, Optional, Sequence # Dict, Union, Literal,
 import torch
 import torch.nn.functional as F
+from mcapst.utils.loss_utils import IndexCache
 
 
 def _construct_final_L(indices_b: torch.Tensor, vals_b: torch.Tensor, N: int, win_units: int, mask: torch.Tensor=None):
@@ -24,6 +24,29 @@ def _construct_final_L(indices_b: torch.Tensor, vals_b: torch.Tensor, N: int, wi
     return D - L
 
 
+def _compute_window_mask(mask: torch.Tensor, win_radius: int = 1) -> torch.BoolTensor:
+    """ compute a mask for which patches overlap the input mask (after a dilation)
+        Args:
+            mask: (B, 1, H, W) or (B, H, W) boolean mask
+        Returns
+            (B, N) boolean tensor
+    """
+    win_diam = win_radius * 2 + 1
+    win_size = win_diam ** 2
+    # ensure mask has shape (B, 1, H, W)
+    if mask.dim()==3:
+        mask = mask.unsqueeze(1)
+    # binary dilation over each window so that any patch touching a True gets marked
+    dilated = F.max_pool2d(mask.float(), kernel_size=win_diam, stride=1, padding=win_radius) # (B,1,H,W)
+    dilated = dilated > 0.5
+    # extract patch‐blocks of the dilated mask
+    m_patches = dilated.unfold(2, win_diam, 1).unfold(3, win_diam, 1) # shape (B, 1, win_d, win_d, H', W')
+    # flatten each (win_d, win_d) patch and ask if any True
+    m_patches = m_patches.reshape(mask.shape[0], 1, win_size, -1) # shape (B, 1, win_size, N)
+    return m_patches.any(dim=2).squeeze(1)  # shape (B, N)
+
+
+
 #^ MattingLaplacian code formerly in mcapst/utils/MattingLaplacian.py
 class MattingLaplacianLoss(torch.nn.Module):
     def __init__(self, eps=1e-7, win_rad=1):
@@ -42,26 +65,6 @@ class MattingLaplacianLoss(torch.nn.Module):
         self._cache = IndexCache(self.win_diam) #? NOTE: submodule should be automatically registered in the ModuleDict of the parent class
 
 
-    def _compute_window_mask(self, mask: torch.Tensor) -> torch.BoolTensor:
-        """ compute a mask for which patches overlap the input mask (after a dilation)
-            Args:
-                mask: (B, 1, H, W) or (B, H, W) boolean mask
-            Returns
-                (B, N) boolean tensor
-        """
-        # ensure mask has shape (B, 1, H, W)
-        if mask.dim()==3:
-            mask = mask.unsqueeze(1)
-        # binary dilation over each window so that any patch touching a True gets marked
-        dilated = F.max_pool2d(mask.float(), kernel_size=self.win_diam, stride=1, padding=self.win_radius) # (B,1,H,W)
-        dilated = dilated > 0.5
-        # extract patch‐blocks of the dilated mask
-        m_patches = dilated.unfold(2, self.win_diam, 1).unfold(3, self.win_diam, 1) # shape (B, 1, win_d, win_d, H', W')
-        # flatten each (win_d, win_d) patch and ask if any True
-        m_patches = m_patches.reshape(mask.shape[0], 1, self.win_size, -1) # shape (B, 1, win_size, N)
-        return m_patches.any(dim=2).squeeze(1)  # shape (B, N)
-
-
     def _extract_patches(self, img: torch.Tensor) -> torch.Tensor:
         """ Extracts local patches using explicit indexing instead of F.unfold with padding.
             Args:
@@ -75,7 +78,6 @@ class MattingLaplacianLoss(torch.nn.Module):
         patches = patches.contiguous().permute(0, 1, 4, 5, 2, 3)  # (B, C, win_diam, win_diam, H', W')
         #patches = patches.reshape(B, C, H'*W', self.win_size).permute(0, 1, 3, 2)
         return patches  # Shape: (B, C, win_diam, H', W')
-
 
 
     def compute_local_statistics(self, patches: torch.Tensor):
@@ -194,15 +196,16 @@ class MattingLaplacianLoss(torch.nn.Module):
         # TODO: there must be a more memory efficient way to do this (with fewer extra dimensions)
         patches = self._extract_patches(img)  # (B, C, win_diam, win_diam, H', W')
         # patches = F.unfold(img, kernel_size=self.win_diam, padding=self.win_radius) # shape: (B, C * win_size, H' * W')
-        window_mask = self._compute_window_mask(mask) if mask is not None else None # shape: (B, N)
         local_mean, cov = self.compute_local_statistics(patches)
         # Regularize the covariance matrix and invert it.
         laplacian = self.compute_quadratic_term(patches, local_mean, cov) # shape: (B, H' * W', win_size, win_size)
-        # TODO: (maybe) add some thresholding to the the Laplacian to enforce sparsity - maybe anything below 1e-8 to zero?
+        # TODO: (maybe) add some thresholding to the the Laplacian to enforce meaningful sparsity - maybe anything below 1e-8 to zero?
         del patches, local_mean, cov  # free up memory
         #indices = self.get_coo_indices(img.shape, img.device) # shape: (2, B, H' * W' * win_size**2)
-        indices = self._cache.get_indices(H, W, img.device).unsqueeze(1).expand(2, B, -1)  # shape: (2, B, H' * W' * win_size**2)
+        indices = self._cache.get(H, W, img.device).unsqueeze(1).expand(2, B, -1)  # shape: (2, B, H' * W' * win_size**2)
         #return laplacian, indices # REMOVE: using for debugging in comparing device speedup (accumulating error meant I had to use the same `laplacian`)
+        #? NOTE: to support multiclass masks, we'll need to compute window_mask over each channel and construct the final Laplacian iteratively
+        window_mask = _compute_window_mask(mask, self.win_radius) if mask is not None else None # shape: (B, N)
         # TODO: may decouple settings for device and parallelism later - main problem is that CPU multithreading could interfere with DataLoader workers
         # construct sparse matrices batch-wise
         if img.is_cuda:
@@ -221,7 +224,10 @@ class MattingLaplacianLoss(torch.nn.Module):
         if mask is not None:
             if (mask.shape[-2:] != img.shape[-2:]) and (mask.shape[0] != img.shape[0]):
                 raise ValueError(f"Mask shape {mask.shape} does not match image shape {tuple(img.shape)}")
-            # TODO: may add support for multiclass masks later, but it requires reimplementation of some channel-wise ops
+            # TODO: may add support for multiclass masks later, but it requires refactoring some channel-wise ops in `compute_laplacian_response`
+                # might have to do this in `construct_laplacian_sequential` and `construct_laplacian_parallel`
+                # honestly, mask support is unnecessary for the current use case since masks aren't used in training, but the original CAP-VSTNet repo supported it
+            #! change the following after implementing multiclass mask support
             assert mask.dtype == torch.bool, f"Only boolean masks are supported for now; got {mask.dtype}"
         # this is taken care of implicitly if we move the whole module to the same device first, but this is a simple fallback
         if self.ident.device != img.device:
@@ -256,9 +262,10 @@ class MattingLaplacianLoss(torch.nn.Module):
 
 
 
+########################### Helper class for custom autograd function ###########################
+
 class MLLossFn(torch.autograd.Function):
-    """
-        Custom autograd function for computing the Matting Laplacian loss and its gradient
+    """ Custom autograd function for computing the Matting Laplacian loss and its gradient
         - follows the same sparse quadratic form as the original project, but relies on PyTorch's autograd for differentiation
         - uses a custom forward and backward pass to compute the loss and gradient efficiently (while scaling and clipping the gradient)
     """
@@ -291,59 +298,3 @@ class MLLossFn(torch.autograd.Function):
         g = g.clamp(-0.05, 0.05)
         # propagate only into stylized_img; other inputs get None
         return None, g #, None, None
-
-
-
-# TODO: might remove the inheritance from nn.Module later since the buffer logic is separate from MattingLaplacianLoss
-class IndexCache(torch.nn.Module):
-    """
-        Holds any number of buffers:
-            - coo_{H}x{W}  : (2, H'*W'*win_size, )  flat indices
-            - primary class member _dict: OrderedDict mapping (H,W) -> buffer name for tensors
-        Exposed APIs:
-            .get_indices(H,W) -> (2, H'*W'*win_size)
-    """
-    def __init__(self, win_d: int, max_size: int = 8):
-        super().__init__()
-        self.win_d = win_d
-        self.win_size = win_d ** 2
-        self.max_size = max_size
-        # use a regular dict to store the buffer names, since tensors will be stored in the module's buffers
-        self._dict: Dict[str, str] = OrderedDict()
-
-    def get_indices(self, H: int, W: int, device: Union[str, torch.device] = "cpu"):
-        """ Computes the row and column indices for the sparse matrix while maintaining LRU cache
-            Args:
-                H, W: spatial dimensions of the input image
-                device (str or torch.device): Device on which to construct the indices (default: "cpu")
-            Returns:
-                indices (Tensor): Row and column indices for the sparse matrix of shape (2, H' * W' * win_size**2)
-        """
-        key = (H, W)
-        # if key is present, move to the end (most recently used), else build and register new indices
-        if key in self._dict.keys():
-            bufname = self._dict.pop(key)
-            self._dict[key] = bufname
-            # look up the name and return the buffer
-            return getattr(self, bufname)
-        # build meshgrid of indices for the patches
-        patch_idx = torch.arange(H*W, device=device).view(1, H, W)
-        # extract valid windows of size win_d
-        patches = (
-            patch_idx
-            .unfold(1, self.win_d, 1).unfold(2, self.win_d, 1)
-            .reshape(1, -1, self.win_size)
-        )  # shape: (1, num_windows, win_size)
-        rows = patches.reshape(-1, 1).repeat(1, self.win_size).flatten()
-        cols = patches.repeat(1, 1, self.win_size).flatten()
-        idx  = torch.stack([rows, cols], dim=0)   # (2, num_windows * win_size)
-        # register idx under a safe buffer name and store the key-value pair in the dict
-        bufname = f"coo_{H}x{W}"
-        self.register_buffer(bufname, idx) # should live on the right device (since this is a submodule of the MLL)
-        self._dict[key] = bufname
-        # evict oldest entry if over capacity
-        if len(self._dict) > self.max_size:
-            _, oldest_buf = self._dict.popitem(last=False)
-            # remove buffer attribute after ejection
-            delattr(self, oldest_buf)
-        return idx

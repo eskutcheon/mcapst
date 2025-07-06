@@ -67,7 +67,7 @@ class LossManager:
     def _compute_content_style_loss(self, content_img, style_img, stylized_img, cweight=0.0, sweight=1.0):
         """ Computes both content and style losses using the style encoder. """
         # NOTE: content_weight is only passed here so that the encoder avoids computing the content loss if content_weight == 0 (from original authors)
-        # TODO: inputs might absolutely have to have shape [256,256] since the VGG19 model is trained on 256x256 images
+        # TODO: (CHECK LATER) inputs might absolutely have to have shape [256,256] since the VGG19 model is trained on 256x256 images
         closs, sloss =  self.style_encoder(content_img, style_img, stylized_img, n_layer=4, content_weight=self.content_weight)
         return cweight * closs, sweight * sloss
 

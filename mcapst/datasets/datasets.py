@@ -59,7 +59,7 @@ class LocalImageDataset(BaseImageDataset):
     def __getitem__(self, idx):
         img_path = self.files[idx]
         img = self.transform(IO.read_image(img_path, mode=IO.ImageReadMode.RGB))
-        # TODO: add content mask support
+        #? NOTE: original CAP-VSTNet training scripts didn't use any masking during training, so don't bother supporting it here
         return {"img": img}
 
 
@@ -68,7 +68,7 @@ class HFImageDataset(BaseImageDataset):
     """ HuggingFace dataset class for loading images from a specified dataset name and split """
     def __init__(self, dataset_name, split="train", transform: Optional[Callable] = None):
         super().__init__(transform)
-        # TODO: should really explore more of the options in datasets.load_dataset() to optimize loading
+        # TODO: explore more of the options in datasets.load_dataset() to optimize loading
         self.dataset = datasets.load_dataset(dataset_name, split=split)
         # streaming=True used together with .with_format("torch") doesn't work quite right
         self.dataset = self.dataset.with_format("torch")
@@ -80,7 +80,6 @@ class HFImageDataset(BaseImageDataset):
         image = self.dataset[idx]["image"]
         if self.transform:
             image = self.transform(image)
-        # TODO: add content mask support
         return {"img": image}
 
 
@@ -178,8 +177,8 @@ def test_if_valid_hf_dataset(name: str) -> bool:
 
     # TODO: add a new dataset for other remote datasets, e.g. from Kaggle, cloud storage, or databases
 
-    # TODO: planning to add to a new file:
+    # TO ADD LATER::
         # TODO: include all necessary scripting to package trained models for upload to HuggingFace model hub
             # e.g. model card, recipe, readme, versioning, etc.
-            # TODO: should also include a script to load my own trained models from the hub (for quick-start)
+            # TODO: include a script to load my own trained models from the hub (for quick-start)
         # TODO: include all necessary scripting to package any NEW datasets for upload to HuggingFace Hub
