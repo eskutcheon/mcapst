@@ -9,7 +9,7 @@ import torch
 import torchvision.transforms.v2 as TT
 import torchvision.io as IO
 
-from mcapst.loss.matting_laplacian import MattingLaplacianLoss as MLL_new
+from mcapst.train.loss.matting_laplacian import MattingLaplacianLoss as MLL_new
 from scripts.MattingLaplacian import compute_laplacian as compute_laplacian_np
 
 # Paths to test images

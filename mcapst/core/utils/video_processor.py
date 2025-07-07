@@ -5,6 +5,7 @@ import torch
 from torchvision.io import VideoReader, write_video
 
 
+
 VIDEO_EXTENSIONS = (".mp4", ".webm", ".avi", ".mov", ".mkv", ".flv", ".wmv", ".m4v")
 
 
@@ -56,13 +57,7 @@ class VideoProcessor:
         elif self.backend == "torchcodec":
             raise NotImplementedError("torchcodec backend not yet implemented")
 
-    def print_metadata(self):
-        pprint(self.metadata, indent=2)
-
-    def get_frame_count(self, start_pt: float = 0, end_pt: float = None) -> int:
-        return int((end_pt - start_pt) * self.target_fps + 0.9999)
-
-    def generate_frames(self, start_pt: float = 0, end_pt: float = None, batch_size: int = 8):
+    def frame_generator(self, start_pt: float = 0, end_pt: float = None, batch_size: int = 8):
         """ Generator function to yield video frames in minibatches """
         if end_pt is None:
             end_pt = self.metadata["duration"]
@@ -73,6 +68,8 @@ class VideoProcessor:
             for tstamp in timestamps[i : i + batch_size]:
                 frames.append(self._read_frame(tstamp.item()))
             yield torch.stack(frames, dim=0)
+
+    ###################################### simpler helper functions ######################################
 
     def save_video_to_disk(self, frames: torch.Tensor, fps: int, output_path: os.PathLike = None):
         if output_path is None:
@@ -87,6 +84,12 @@ class VideoProcessor:
             write_video(output_path, frames, fps=int(fps), options={"crf": "18"})
         elif self.backend == "torchcodec":
             raise NotImplementedError("torchcodec backend not yet implemented")
+
+    def print_metadata(self):
+        pprint(self.metadata, indent=2)
+
+    def get_frame_count(self, start_pt: float = 0, end_pt: float = None) -> int:
+        return int((end_pt - start_pt) * self.target_fps + 0.9999)
 
     def __del__(self):
         del self.reader

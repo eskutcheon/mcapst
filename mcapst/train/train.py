@@ -3,13 +3,16 @@ from typing import Dict, Union, Optional, Any, Callable
 from tqdm import tqdm
 import torch
 from torch import nn
+# TODO: extract to a new logging file later
 from torch.utils.tensorboard import SummaryWriter
 # local imports
-from mcapst.models.VGG import VGG19
-from mcapst.datasets.orchestrator import DataManager
-from mcapst.config.configure import ConfigManager, TrainingConfig
-from mcapst.loss.manager import LossManager
-from mcapst.utils.loss_utils import RunningMeanLoss
+from mcapst.core.models.VGG import VGG19
+from mcapst.train.datasets.orchestrator import DataManager
+#from mcapst.config.configure import ConfigManager, TrainingConfig
+from mcapst.train.config.config import TrainingConfig, TrainingConfigManager
+from mcapst.train.loss.manager import LossManager
+# TODO: might want to move this to the train submodule later
+from mcapst.core.utils.loss_utils import RunningMeanLoss
 
 
 TRANSFER_MODE_ALIASES = {
@@ -103,7 +106,7 @@ class TrainerBase:
 class ImageTrainer(TrainerBase):
     def __init__(self, config: Union[TrainingConfig, Dict[str, Any]]):
         super().__init__(config)
-        from mcapst.stylizers.image_stylizers import BaseImageStylizer
+        from mcapst.core.stylizers.image_stylizers import BaseImageStylizer
         # TODO: if I keep using stylizer classes in this way, I'll have to add some staging for choosing this or the MaskedImageStylizer class
         self.transfer_module = BaseImageStylizer(
             mode=self.config.transfer_mode,
@@ -168,7 +171,7 @@ class VideoTrainer(TrainerBase):
         # using the BaseImageStylizer since the original implementation only generated fake optical flow data between unrelated images in a batch
             # eventually, I'll add a new data manager for batching video frames and generating real optical flow data in the same manner as it does now.
         # TODO: need to add some staging for choosing the stylizers (e.g. the MaskedImageStylizer class if use_segmentation is True)
-        from mcapst.stylizers.image_stylizers import BaseImageStylizer
+        from mcapst.core.stylizers.image_stylizers import BaseImageStylizer
         self.transfer_module = BaseImageStylizer(
             mode=self.config.transfer_mode,
             ckpt=self.config.ckpt_path,
@@ -231,8 +234,8 @@ def stage_training_pipeline(config_path: Optional[str] = None):
     """ Top-level convenience function for launching training from CLI or programmatic usage:
         ```python -m mcapst.pipelines.train --mode training --config_path path/to/train_config.yaml```
     """
-    config_manager = ConfigManager(mode="training", config_path=config_path)
-    config = config_manager.get_config()
+    config_manager = TrainingConfigManager(config_path=config_path)
+    config: TrainingConfig = config_manager.get_config()
     if config.modality == "image":
         trainer = ImageTrainer(config)
     elif config.modality == "video":

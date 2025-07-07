@@ -9,8 +9,6 @@ from time import perf_counter
 from tqdm import tqdm
 import yaml
 
-from mcapst.stylizers.image_stylizers import BaseImageStylizer
-from mcapst.stylizers.video_stylizers import BaseVideoStylizer
 
 
 # TODO: define this in the YAML later
@@ -39,6 +37,7 @@ def get_file_basename(file_path: str) -> str:
 
 
 def test_img_inference(transfer_type="photo"):
+    from mcapst.core.stylizers.image_stylizers import BaseImageStylizer
     output_dir = os.path.join(project_root, "results")
     os.makedirs(output_dir, exist_ok=True)
     ckpt_path = os.path.join(ckpt_dir, f"{transfer_type}_image.pt")
@@ -70,6 +69,7 @@ def test_img_inference(transfer_type="photo"):
 
 
 def test_multistyle_img_inference(transfer_type="photo"):
+    from mcapst.core.stylizers.image_stylizers import BaseImageStylizer
     output_dir = os.path.join(project_root, "results")
     os.makedirs(output_dir, exist_ok=True)
     ckpt_path = os.path.join(ckpt_dir, f"{transfer_type}_image.pt")
@@ -99,6 +99,7 @@ def test_multistyle_img_inference(transfer_type="photo"):
 
 
 def test_video_inference(transfer_type="photo"):
+    from mcapst.core.stylizers.video_stylizers import BaseVideoStylizer
     output_dir = os.path.join(project_root, "results")
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, f"{transfer_type}-stylized_video.mp4")
@@ -123,7 +124,7 @@ def test_video_inference(transfer_type="photo"):
 
 
 def test_major_refactor_inference():
-    from mcapst.pipelines.infer import stage_inference_pipeline
+    from mcapst.infer.infer import stage_inference_pipeline
     # Define inference config
     config_path = "temp_inference.yaml"
     config = {

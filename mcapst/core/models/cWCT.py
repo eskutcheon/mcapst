@@ -1,6 +1,6 @@
 import torch
 import torch.jit
-from typing import Union, Iterable, Callable, Tuple
+from typing import Tuple #, Union, Iterable, Callable,
 
 
 

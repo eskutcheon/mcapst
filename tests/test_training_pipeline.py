@@ -4,8 +4,8 @@ sys.path.append(os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__
 import tempfile
 import pytest
 # local imports
-from mcapst.config.configure import TrainingConfig
-from mcapst.pipelines.train import stage_training_pipeline, ImageTrainer, VideoTrainer
+from mcapst.train.config.config import TrainingConfig
+from mcapst.train.train import ImageTrainer, VideoTrainer #, stage_training_pipeline
 
 
 @pytest.fixture
@@ -69,10 +69,8 @@ def test_image_training_pipeline(dummy_train_content, dummy_train_style):
 
 
 def test_video_training_pipeline(dummy_train_content, dummy_train_style):
-    """
-    Tests the 'fake flow' approach for video, but uses normal images 
-    for content/style. We just confirm that we can run a few steps 
-    without error, using temporal_weight > 0. 
+    """ Tests the 'fake flow' approach for video, but uses normal images for content/style.
+        just confirming that we can run a few steps without error, using temporal_weight > 0.
     """
     if not os.path.isdir(dummy_train_content) or not os.path.isdir(dummy_train_style):
         pytest.skip("No dummy train content/style data found; skipping video training test.")
@@ -106,9 +104,8 @@ def test_video_training_pipeline(dummy_train_content, dummy_train_style):
 
 
 def test_image_training_pipeline_dict_override(dummy_hf_content, dummy_hf_style):
-    """
-    Example of calling stage_training_pipeline with no direct CLI, 
-    but building config in code. This is similar to a user passing a YAML file.
+    """ Example of calling stage_training_pipeline with no direct CLI,
+        but building config in code. This is similar to a user passing a YAML file.
     """
     # if not os.path.isdir(dummy_train_content) or not os.path.isdir(dummy_train_style):
     #     pytest.skip("No dummy data found.")

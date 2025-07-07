@@ -4,7 +4,7 @@ import torchvision.io as IO
 # local imports
 from .base_stylizers import BaseStylizer, transform_preprocess
 from ..models.containers import FeatureContainer, StyleWeights
-from ..datasets.video_processor import VideoProcessor
+from ..utils.video_processor import VideoProcessor
 
 
 
@@ -71,7 +71,7 @@ class BaseVideoStylizer(BaseStylizer):
             "ERROR: 'sample' must be a path-like string or a tensor of video frames!"
         # NOTE: no need to check whether sample is a string or tensor since the VideoReader object can accept either as src
         vid_processor = VideoProcessor(content_vid, target_fps=self.fps, backend="torchvision")
-        vid_generator = vid_processor.generate_frames(batch_size = self.max_batch_size)
+        vid_generator = vid_processor.frame_generator(batch_size = self.max_batch_size)
         # NOTE: decorator turns alpha_c and alpha_s into containers.StyleWeights objects
         style_args = {"style_paths": style_paths, "alpha_c": alpha_c, "alpha_s": alpha_s}
         stylized_video = []

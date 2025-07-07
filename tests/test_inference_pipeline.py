@@ -1,12 +1,11 @@
 import os, sys
 sys.path.append(os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')))
-import shutil
+# import shutil
 import tempfile
 import pytest
-import torch
 # local imports
-from mcapst.config.configure import InferenceConfig
-from mcapst.pipelines.infer import stage_inference_pipeline, ImageInferenceOrchestrator, VideoInferenceOrchestrator
+from mcapst.infer.config.config import InferenceConfig
+from mcapst.infer.infer import stage_inference_pipeline, ImageInferenceOrchestrator, VideoInferenceOrchestrator
 
 
 @pytest.fixture
@@ -52,24 +51,17 @@ def test_video_inference_pipeline_cli(sample_video_path):
             transfer_mode="artistic",
         )
         results = VideoInferenceOrchestrator(config).run_inference()
-        # In the default code, if save_output=True, stylized frames
-        # might not be returned (or might be empty). That's okay, let's just see
-        # that no error occurred and we wrote a file.
         out_files = os.listdir(tmpdir)
         assert len(out_files) > 0, "No output files created for video inference test."
         # If `save_output=False`, you'd check that `results` is non-empty.
 
 
 def test_stage_inference_pipeline_dict_override(sample_image_path):
-    """
-    Uses stage_inference_pipeline() directly (like a user calling CLI),
-    but we pass the config at runtime rather than from a YAML. 
-    """
+    """ Uses stage_inference_pipeline() directly like CLI, but we pass the config at runtime rather than from a YAML """
     if not os.path.isfile(sample_image_path):
         pytest.skip("No sample image file found.")
-
     with tempfile.TemporaryDirectory() as tmpdir:
-        # We can feed a dict via InferenceConfig's constructor:
+        # can feed a dict via InferenceConfig's constructor:
         config_dict = {
             "modality": "image",
             "input_path": sample_image_path,
@@ -77,13 +69,7 @@ def test_stage_inference_pipeline_dict_override(sample_image_path):
             "transfer_mode": "artistic",
             "alpha_s": 0.9
         }
-        # For a real CLI test, you might create a temp YAML file and pass config_path=...
-        # Here we just build the config object in code:
         config = InferenceConfig(**config_dict)
-        # Manually override the default ckpt_path if needed:
-        # config.ckpt_path = "checkpoints/art_image.pt"
-
-        # Now call the pipeline
         runner = ImageInferenceOrchestrator(config)
         results = runner.run_inference()
         assert len(results) > 0

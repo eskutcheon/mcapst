@@ -5,7 +5,7 @@ from typing import Dict, Union, Literal, Callable
 import torch
 import torch.nn as nn
 # local imports
-from ..models.VGG import VGG19
+from mcapst.core.models.VGG import VGG19
 from .matting_laplacian import MattingLaplacianLoss
 from .temporal_loss import TemporalLoss
 

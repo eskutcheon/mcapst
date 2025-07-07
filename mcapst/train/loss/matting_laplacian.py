@@ -2,7 +2,7 @@
 from typing import List, Optional, Sequence # Dict, Union, Literal,
 import torch
 import torch.nn.functional as F
-from mcapst.utils.loss_utils import IndexCache
+from mcapst.core.utils.loss_utils import IndexCache
 
 
 def _construct_final_L(indices_b: torch.Tensor, vals_b: torch.Tensor, N: int, win_units: int, mask: torch.Tensor=None):
@@ -91,7 +91,8 @@ class MattingLaplacianLoss(torch.nn.Module):
         """
         # compute local mean per channel
         local_mean = patches.mean(dim=(2,3), keepdim=True).squeeze(2)  # (B, C, 1, H', W')
-        # TODO: rewrite Einstein summation to go ahead and reshape patches earlier
+        # TODO: rewrite Einstein summation after reshaping patches earlier
+        # TODO: look into how opt_einsum might be able to replace this with compiled and reusable expressions
         # compute per-pixel E[X X^T]
         patch_sq_sum = torch.einsum('... i m n h w, ... j m n h w -> ... i j h w', patches, patches) / self.win_size # shape: (B, C, win_diam, H' W')
         # compute outer product of local mean: E[X]E[X]^T

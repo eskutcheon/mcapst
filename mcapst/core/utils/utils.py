@@ -1,14 +1,15 @@
 import os.path
-from typing import Dict, List, Literal, Union, Iterable, Callable, Tuple, Any
+from typing import Literal, Union, Iterable
 import torchvision.transforms.v2 as TT
 from PIL import Image
 import torch
-import torchvision.utils as vutils
+import torchvision.utils as TVU
 import numpy as np
 
-#^#####################################################################
+
+#^#################################################################################################
 #^ ORIGINAL CAP-VSTNet CODE - will be reused until no longer applicable
-#^#####################################################################
+#^#################################################################################################
 
 def prepare_sub_folder(output_directory):
     image_directory = os.path.join(output_directory, 'images')
@@ -25,8 +26,8 @@ def prepare_sub_folder(output_directory):
 def __write_images(image_outputs, display_image_num, file_name, normalize=False):
     image_outputs = [images.expand(-1, 3, -1, -1) for images in image_outputs] # expand gray-scale images to 3 channels
     image_tensor = torch.cat([images[:display_image_num] for images in image_outputs], 0)
-    image_grid = vutils.make_grid(image_tensor.data, nrow=display_image_num, padding=0, normalize=normalize)
-    vutils.save_image(image_grid, file_name, nrow=1)
+    image_grid = TVU.make_grid(image_tensor.data, nrow=display_image_num, padding=0, normalize=normalize)
+    TVU.save_image(image_grid, file_name, nrow=1)
 
 
 def write_2images(image_outputs, display_image_num, image_directory, postfix, normalize=False):
@@ -148,9 +149,11 @@ def load_segment(image_path, size=None):
         image = change_seg(image)
     return image
 
-#^#####################################################################
+#^#################################################################################################
 #^ END OF ORIGINAL CAP-VSTNet CODE - BEGINNING OF NEW CODE
-#^#####################################################################
+#^#################################################################################################
+
+
 
 def ensure_list_format(str_list: Union[str, Iterable[str]]):
     if isinstance(str_list, str):

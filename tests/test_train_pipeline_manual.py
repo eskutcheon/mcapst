@@ -5,8 +5,8 @@ import tempfile
 import cProfile
 import pstats
 # local imports
-from mcapst.config.configure import TrainingConfig
-from mcapst.pipelines.train import stage_training_pipeline, ImageTrainer, VideoTrainer
+from mcapst.train.config.config import TrainingConfig
+from mcapst.train.train import ImageTrainer #, VideoTrainer, stage_training_pipeline
 
 
 

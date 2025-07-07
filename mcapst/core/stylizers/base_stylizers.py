@@ -3,7 +3,7 @@ import functools
 #from collections import Iterable
 import os
 from dataclasses import dataclass, field
-from tqdm import tqdm
+# from tqdm import tqdm
 import torch
 import torchvision.transforms.v2 as TT
 import torchvision.io as IO

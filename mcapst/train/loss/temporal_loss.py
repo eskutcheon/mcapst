@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 # helper class for mesh grid caching
-from mcapst.utils.loss_utils import MeshGridCache
+from mcapst.core.utils.loss_utils import MeshGridCache
 
 
 

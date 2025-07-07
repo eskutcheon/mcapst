@@ -4,6 +4,9 @@ import numpy as np
 from torch.nn import functional as F
 
 
+#? NOTE: hasn't really changed much from the original code, so there may be some room for improvement in some places
+
+
 def split(x):
     n = int(x.size()[1]/2)
     x1 = x[:, :n, :, :].contiguous()

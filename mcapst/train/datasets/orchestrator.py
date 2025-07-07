@@ -1,13 +1,13 @@
 import os
-import math
-from typing import Dict, Union, Optional, Literal, Any, Callable, List
+from typing import Dict, Optional, Literal, Any, Callable #, Union, List
 from itertools import cycle
-from multiprocessing import cpu_count
+# import math
+# from multiprocessing import cpu_count
 import torch
 from torch.utils.data import DataLoader
 import torchvision.transforms.v2 as TT
 # local imports
-# TODO: add a factory method for HuggingFace datasets eventually
+# TODO: add a factory method for HuggingFace datasets
 from .datasets import LocalImageDataset, HFImageDataset, HFStreamingIterable, test_if_valid_hf_dataset
 
 

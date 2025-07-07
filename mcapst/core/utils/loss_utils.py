@@ -16,7 +16,7 @@ class BaseBufferCache:
         self._cache = OrderedDict() # maybe consider using deque to easily set a max size
 
     def get(self, *key_parts: Any) -> torch.Tensor:
-        """ Key is the tuple `key_parts` (e.g. (H, W, device)). Returns a tensor, caching the result of `_build`. """
+        """ Key is the tuple `key_parts` (e.g. (H, W, device)). Returns a tensor, caching the result of `_build` """
         key = tuple(key_parts)
         if key in self._cache:  # if there was a hit, move it to the front of the queue and return the tensor
             val = self._cache.pop(key)
@@ -24,18 +24,10 @@ class BaseBufferCache:
             return val
         # else if it's a miss, then build, register as buffer, insert in LRU
         tensor = self._build(*key_parts)
-        # previously used the following for saving to the torch.nn.Module buffers, but inheritance was removed
-        # bufname = f"{self.__class__.__name__}_" + "_".join(
-        #     str(x).replace(":", "_") for x in key_parts
-        # )
-        # ensure valid python identifier (you might want to sanitize further in real code)
-        # self.register_buffer(bufname, tensor)
         self._cache[key] = tensor #bufname
         # evict (by LRU policy) if needed
         if len(self._cache) > self.max_size:
-            #_, oldest = self._cache.popitem(last=False) # retrieve with FIFO order
             _ = self._cache.popitem(last=False) # retrieve with FIFO order
-            #delattr(self, oldest)
         return tensor
 
     def _build(self, *key_parts: Any) -> torch.Tensor:
@@ -45,8 +37,8 @@ class BaseBufferCache:
 
 class IndexCache(BaseBufferCache):
     """ LRU cache for indices of a sparse matrix constructed from a sliding window over an image.
-        The indices are computed based on the spatial dimensions (H, W) and the window size (win_d).
-        The indices are used to construct a sparse matrix for the Matting Laplacian loss
+            - computed based on the spatial dimensions (H, W) and the window size (win_d).
+            - used to construct a sparse matrix for the Matting Laplacian loss
     """
     def __init__(self, win_d: int, max_size: int = 8):
         super().__init__(max_size)
@@ -72,8 +64,8 @@ class IndexCache(BaseBufferCache):
         ) # shape: (1, num_windows, win_size)
         rows = patches.reshape(-1, 1).repeat(1, self.win_size).flatten()
         cols = patches.repeat(1, 1, self.win_size).flatten()
-        idx  = torch.stack([rows, cols], dim=0)   # (2, num_windows * win_size)
-        return idx
+        indices  = torch.stack([rows, cols], dim=0)   # (2, num_windows * win_size)
+        return indices
 
 
 
@@ -110,10 +102,9 @@ class RunningMeanLoss:
                 self._loss_counts[key] = 1
                 self._loss_means[key] = value
             else: # else perform Welford's algorithm update on existing key
-                count = self._loss_counts[key] + 1
-                self._loss_counts[key] = count
+                self._loss_counts[key] += 1
                 delta = value - self._loss_means[key]
-                self._loss_means[key] += delta / count
+                self._loss_means[key] += delta / self._loss_counts[key]
 
     def reset(self):
         """ resets the running means and counts to start a new running mean calculation """

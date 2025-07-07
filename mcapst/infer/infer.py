@@ -7,8 +7,8 @@ from torchvision.io import read_image, write_jpeg, ImageReadMode
 from torchvision.transforms.v2 import Compose, ToDtype, Lambda, Resize
 # local imports
 #from .dispatcher import StyleTransferDispatcher
-from mcapst.config.configure import ConfigManager, InferenceConfig
-from mcapst.utils.utils import ensure_file_list_format
+from mcapst.infer.config.config import InferenceConfig, InferenceConfigManager
+from mcapst.core.utils.utils import ensure_file_list_format
 
 
 
@@ -105,7 +105,7 @@ class ImageInferenceOrchestrator(BaseInferenceOrchestrator):
 
     def _load_stylizer(self):
         """ selects either BaseImageStylizer or MaskedImageStylizer depending on config.use_segmentation """
-        from mcapst.stylizers.image_stylizers import BaseImageStylizer, MaskedImageStylizer
+        from mcapst.core.stylizers.image_stylizers import BaseImageStylizer, MaskedImageStylizer
         mode = self.config.transfer_mode  # "art" or "photo"
         ckpt_path = self.config.ckpt_path
         max_size = self.config.max_size
@@ -180,7 +180,7 @@ class VideoInferenceOrchestrator(BaseInferenceOrchestrator):
 
     def _load_stylizer(self):
         """ returns BaseVideoStylizer instance for 'art' or 'photo' style transfer on video """
-        from mcapst.stylizers.video_stylizers import BaseVideoStylizer
+        from mcapst.core.stylizers.video_stylizers import BaseVideoStylizer
         if self.config.use_segmentation:
             # TODO: implement a "MaskedVideoStylizer"
             raise NotImplementedError("Segmented video style transfer not yet implemented.")
@@ -240,9 +240,9 @@ def stage_inference_pipeline(config_path: Optional[str] = None):
     """ Top-level convenience function used when calling from CLI or programmatically as
         ```python -m mcapst.pipelines.infer --mode inference --config_path path/to/infer_config.yaml```
     """
-    # uses a ConfigManager to parse user config and pass an object directly
-    config_manager = ConfigManager(mode="inference", config_path=config_path)
-    config = config_manager.get_config()
+    # uses a InferenceConfigManager to parse user config and pass an object directly
+    config_manager = InferenceConfigManager(config_path=config_path)
+    config: InferenceConfig = config_manager.get_config()
     # routes to the correct inference class based on modality (image or video)
     if config.modality == "image":
         runner = ImageInferenceOrchestrator(config)

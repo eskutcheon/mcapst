@@ -1,10 +1,24 @@
+
+
+
+"""
+    This file was originally implemented within my thesis project as part of a larger augmentation pipeline,
+        where I passed the `StyleTransferDispatcher.transform` method to a wrapper class, which applied the style transfer as a training-time augmentation
+    There is still a lot of merit in using this class for parallel or asynchronous style transfer, especially if you want to use it in the same way,
+        as part of a larger training pipeline for a different task model.
+    This file hasn't been revisited since the original implementation, so it probably isn't fully compatible with the latest changes in the mcapst package
+        - changes coming soon to improve the modularity of the inference submodule
+"""
+
+
+
 from typing import Union, Tuple, List  #Literal, Any, Dict, Type, Callable, Optional
 import os
 import torch
 from threading import Semaphore, Lock
 from queue import Queue
 
-from mcapst.stylizers.image_stylizers import BaseImageStylizer
+from mcapst.core.stylizers.image_stylizers import BaseImageStylizer
 # TODO: need to implement this for the remaining stylizer subclasses, including for video
 
 
@@ -119,24 +133,14 @@ class StyleTransferDispatcher:
 
 """
 Key Features of StyleTransferDispatcher
-Manager Pooling:
-
-Multiple BaseImageStylizer instances are preallocated and stored in a pool.
-The Semaphore ensures that only a limited number of managers are in use at any given time.
-Asynchronous Execution with CUDA Streams:
-
-If use_cuda_streams is enabled, each style transfer task is executed in its own CUDA stream, allowing asynchronous parallelism.
-Locking and Availability Management:
-
-The Semaphore and Lock control access to the style managers, ensuring that only one task can use a manager at a time.
-The Queue tracks available managers and ensures that tasks are assigned to an available manager in a thread-safe manner.
-Integration with Existing Pipeline:
-
-The transform method handles style transfer requests, so it can easily be passed to AugmentationFunctionalWrapper.handle in the augmentation pipeline.
-
-
-Benefits of this Design
-Concurrency Without Race Conditions: By cloning style transfer managers and managing them through a semaphore, you ensure multiple parallel style transfers without race conditions.
-Asynchronous CUDA Streams: If you’re using CUDA, the asynchronous stream logic ensures that the GPU is efficiently utilized for parallel style transfer operations.
-Minimal Code Changes: You can keep the existing augmentation interface in place by passing the StyleTransferDispatcher.transform method to AugmentationFunctionalWrapper.
+- Manager Pooling:
+    - Multiple BaseImageStylizer instances are preallocated and stored in a pool.
+    - The Semaphore ensures that only a limited number of managers are in use at any given time.
+- Locking and Availability Management:
+    - The Semaphore and Lock control access to the style managers, ensuring that only one task can use a manager at a time.
+    - The Queue tracks available managers and ensures that tasks are assigned to an available manager in a thread-safe manner.
+- Concurrency Without Race Conditions:
+    - By cloning style transfer managers and managing them through a semaphore, we ensure multiple parallel style transfers without race conditions.
+- Asynchronous CUDA Streams
+    - If using CUDA, the asynchronous stream logic ensures that the GPU is efficiently utilized for parallel style transfer operations.
 """
