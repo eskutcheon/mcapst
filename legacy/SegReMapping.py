@@ -1,4 +1,12 @@
+
+
+raise DeprecationWarning("This file is deprecated and will be removed in a future version. Use mcapst.core.utils.label_remapping instead.")
+
 import numpy as np
+
+
+# original had no comments or docstrings and had a couple inefficient functions
+
 
 class SegReMapping:
     def __init__(self, mapping_name, min_ratio=0.01):

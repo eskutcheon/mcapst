@@ -1,9 +1,16 @@
+
+raise DeprecationWarning("this file is deprecated and will be removed in a future version; use mcapst.train.loss.matting_laplacian instead")
+
 from typing import Union, List, Optional
 import torch
 import cv2
 import numpy as np
 from numpy.lib.stride_tricks import as_strided
 import scipy.sparse
+
+
+# original had no comments and only had the 3 functions `_rolling_block`, `compute_laplacian`, and `laplacian_loss_grad`
+
 
 
 def save_win_inds(win_inds, filename="win_inds.pt"):

@@ -1,3 +1,7 @@
+
+raise DeprecationWarning("this file is deprecated and will be removed in a future version; use mcapst.train.loss.temporal_loss instead")
+
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

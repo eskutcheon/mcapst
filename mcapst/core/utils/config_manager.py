@@ -5,6 +5,9 @@ from dataclasses import fields
 from typing import Any, Dict, Optional, Type, Union
 import yaml
 
+
+#? NOTE: below is partially AI-generated from the original ConfigManager, which used more
+    #? conditional branching for training and inference
 class BaseConfigManager:
     """ utility class for loading YAML configs and applying CLI overrides """
     def __init__(self,
