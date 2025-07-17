@@ -1,6 +1,5 @@
 from typing import Union, Tuple
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 # helper class for mesh grid caching
 from mcapst.core.utils.loss_utils import MeshGridCache
@@ -8,7 +7,7 @@ from mcapst.core.utils.loss_utils import MeshGridCache
 
 
 #^ Temporal loss code formerly in mcapst/utils/TemporalLoss.py
-class TemporalLoss(nn.Module):
+class TemporalLoss(torch.nn.Module):
     """ Handles both the original "fake flow" approach and (optionally) real flow for future implementations
         By default, it replicates the old approach:
             - GenerateFakeData: produce second_frame + flow from first_frame

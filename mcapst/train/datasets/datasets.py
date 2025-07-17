@@ -4,12 +4,11 @@ from typing import Dict, Union, Optional, Literal, Any, Callable, List
 import random
 from PIL.Image import Image
 import torch
-from torch.utils.data import IterableDataset
+from torch.utils.data import Dataset, IterableDataset
 import datasets # huggingface datasets
 import torchvision.transforms.v2 as TT
 import torchvision.io as IO
-#from torch.utils.data.dataset import Dataset
-from torch.utils.data import Dataset
+
 
 
 ALLOWED_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff"}

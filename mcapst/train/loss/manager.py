@@ -3,7 +3,6 @@
 
 from typing import Dict, Union, Literal, Callable
 import torch
-import torch.nn as nn
 # local imports
 from mcapst.core.models.VGG import VGG19
 from .matting_laplacian import MattingLaplacianLoss
@@ -20,7 +19,7 @@ class LossManager:
                 config (dict): Configuration dictionary.
                 style_encoder (BaseStyleEncoder, optional): A style encoding model for computing content/style loss.
         """
-        self.l1_loss = nn.L1Loss()
+        self.l1_loss = torch.nn.L1Loss()
         self.content_weight = config.content_weight
         self.style_weight = config.style_weight
         self.rec_weight = config.rec_weight

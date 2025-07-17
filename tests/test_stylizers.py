@@ -11,6 +11,8 @@ import yaml
 
 
 
+MAX_DIM = 960  # maximum dimension for image resizing
+
 # TODO: define this in the YAML later
 project_root = os.path.abspath(os.path.join(__file__, "..", ".."))
 ckpt_dir = os.path.join(project_root, "checkpoints")
@@ -37,7 +39,7 @@ def get_file_basename(file_path: str) -> str:
 
 
 def test_img_inference(transfer_type="photo"):
-    from mcapst.core.stylizers.image_stylizers import BaseImageStylizer
+    from mcapst.core import BaseImageStylizer
     output_dir = os.path.join(project_root, "results")
     os.makedirs(output_dir, exist_ok=True)
     ckpt_path = os.path.join(ckpt_dir, f"{transfer_type}_image.pt")
@@ -45,7 +47,7 @@ def test_img_inference(transfer_type="photo"):
     alpha_tests = [None, 0.1] if transfer_type == "photo" else [None, 0.1]
     style_filenames = sorted([p for p in os.listdir(style_img_dir) if os.path.isfile(os.path.join(style_img_dir, p))])
     # create style transfer manager with basic settings
-    manager = BaseImageStylizer(transfer_type, ckpt_path, 960)
+    manager = BaseImageStylizer(transfer_type, ckpt_path, MAX_DIM)
     for idx, style_filename in enumerate(style_filenames[:3]):
         style_img_path = os.path.join(style_img_dir, style_filename)
         if not os.path.isfile(style_img_path):
@@ -69,7 +71,7 @@ def test_img_inference(transfer_type="photo"):
 
 
 def test_multistyle_img_inference(transfer_type="photo"):
-    from mcapst.core.stylizers.image_stylizers import BaseImageStylizer
+    from mcapst.core import BaseImageStylizer
     output_dir = os.path.join(project_root, "results")
     os.makedirs(output_dir, exist_ok=True)
     ckpt_path = os.path.join(ckpt_dir, f"{transfer_type}_image.pt")
@@ -78,7 +80,7 @@ def test_multistyle_img_inference(transfer_type="photo"):
     alpha_tests = [None, 0.1] if transfer_type == "photo" else [None, 0.1]
     style_filenames = sorted([p for p in os.listdir(style_img_dir) if os.path.isfile(os.path.join(style_img_dir, p))])
     # create style transfer manager with basic settings
-    manager = BaseImageStylizer(transfer_type, ckpt_path, 960)
+    manager = BaseImageStylizer(transfer_type, ckpt_path, MAX_DIM)
     style_filenames = style_filenames[:2]
     style_img_paths = [os.path.join(style_img_dir, p) for p in style_filenames]
     for content_path in content_img_paths:
@@ -99,7 +101,7 @@ def test_multistyle_img_inference(transfer_type="photo"):
 
 
 def test_video_inference(transfer_type="photo"):
-    from mcapst.core.stylizers.video_stylizers import BaseVideoStylizer
+    from mcapst.core import BaseVideoStylizer
     output_dir = os.path.join(project_root, "results")
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, f"{transfer_type}-stylized_video.mp4")
@@ -110,7 +112,7 @@ def test_video_inference(transfer_type="photo"):
     style_filenames = sorted([p for p in os.listdir(style_img_dir) if os.path.isfile(os.path.join(style_img_dir, p))])
     style_filenames = [style_filenames[2]]
     # create style transfer manager with basic settings
-    manager = BaseVideoStylizer(transfer_type, ckpt_path, 720, fps=20)
+    manager = BaseVideoStylizer(transfer_type, ckpt_path, MAX_DIM, fps=20)
     for idx, style_filename in enumerate(style_filenames):
         style_img_path = os.path.join(style_img_dir, style_filename)
         for content_path in content_img_paths:
@@ -124,7 +126,7 @@ def test_video_inference(transfer_type="photo"):
 
 
 def test_major_refactor_inference():
-    from mcapst.infer.infer import stage_inference_pipeline
+    from mcapst.infer import stage_inference_pipeline
     # Define inference config
     config_path = "temp_inference.yaml"
     config = {

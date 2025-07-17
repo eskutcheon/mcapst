@@ -1,7 +1,6 @@
 
 import argparse
-import dataclasses
-from dataclasses import fields
+from dataclasses import is_dataclass, asdict, fields
 from typing import Any, Dict, Optional, Type, Union
 import yaml
 
@@ -41,7 +40,7 @@ class BaseConfigManager:
             field_name = f.name
             full_name = f"{prefix}{field_name}"
             value = getattr(dc_instance, field_name)
-            if dataclasses.is_dataclass(value):
+            if is_dataclass(value):
                 self._add_dataclass_args(value, prefix=f"{full_name}.")
             else:
                 help_msg = self.help_messages.get(full_name, self.help_messages.get(field_name, full_name))
@@ -56,7 +55,7 @@ class BaseConfigManager:
             field_name = f.name
             full_name = f"{prefix}{field_name}"
             value = getattr(dc_instance, field_name)
-            if dataclasses.is_dataclass(value):
+            if is_dataclass(value):
                 self._apply_overrides(value, args_namespace, prefix=f"{full_name}.")
             else:
                 cli_key = full_name.replace('.', '_').replace('-', '_')
@@ -98,7 +97,7 @@ class BaseConfigManager:
 
     def _rerun_post_init(self) -> None:
         """ re-run the dataclass's __post_init__ to ensure correct validation """
-        self.config = self.config_cls(**dataclasses.asdict(self.config))
+        self.config = self.config_cls(**asdict(self.config))
 
     def get_config(self) -> Any:
         """ returns the final configuration object """

@@ -2,107 +2,123 @@
 
 ### [**Paper**](https://arxiv.org/abs/2303.17867) | [**Poster**](https://cvpr2023.thecvf.com/media/PosterPDFs/CVPR%202023/22374.png?t=1685361737.0440488) | [**Video 1**](https://youtu.be/Mks9_xQNE_8) | [**Video 2**](https://youtu.be/OTJ1wEe29Hc)
 
-![](assets/teaser.webp)
-
-## Usage
-Three ways of using CAP-VSTNet to stylize image/video.
-* Style transfer without using semantic masks.
-* Style transfer with manually generated semantic masks.
-* Style transfer with automatically generated semantic masks.
-
+<!-- teaser image placeholder -->
 ![](assets/image_stylization.webp)
 
-
-## Requirements
-1.It's compatible with ```pytorch>=1.0```. An example (without using semantic segmentation model): 
-```
-conda install pytorch torchvision torchaudio pytorch-cuda=11.7 -c pytorch -c nvidia
-pip install opencv-python scipy tqdm
-``` 
-2.If you want to transfer style with automatically generated semantic mask, an example using segmentation model [SegFormer](https://github.com/NVlabs/SegFormer) (test on Linux):
-```
-conda create --name capvst python=3.8 -y
-conda activate capvst
-pip install torch==1.8.0+cu111 torchvision==0.9.0+cu111 -f https://download.pytorch.org/whl/torch_stable.html
-pip install mmcv-full==1.3.0 -f https://download.openmmlab.com/mmcv/dist/cu111/torch1.8.0/index.html
-pip install timm opencv-python ipython attrs scipy
-
-cd models/segmentation & git clone https://github.com/NVlabs/SegFormer.git
-cd SegFormer && pip install -e . --user
-```
-Then, download the pre-trained weight ```segformer.b5.640x640.ade.160k.pth``` ([google drive](https://drive.google.com/drive/folders/1zqKiC3m9XzaFX09UNufK79HntpTpx0KZ) | [onedrive](https://connecthkuhk-my.sharepoint.com/:f:/g/personal/xieenze_connect_hku_hk/Ept_oetyUGFCsZTKiL_90kUBy5jmPV65O5rJInsnRCDWJQ?e=CvGohw)) and save at ```models/segmentation/SegFormer/segformer.b5.640x640.ade.160k.pth```.
+## Project Overview
+This repository reorganizes the original CAP-VSTNet implementation into a pip‑installable Python package named `mcapst`. Major additions include a dataclass-based configuration system, modular training and inference pipelines, and utility classes for processing images or videos. Both training and inference can be invoked from the command line or used as a Python API. Note that this is the first time I've packaged a repository and there may be mistakes along the way.
 
 
-## Test
-Download the pre-trained weight in ```checkpoints``` directory ([google drive](https://drive.google.com/drive/folders/19xlQVprXdPJ9bhfnVEJ1ruVST-NuIlIE?usp=share_link)).
-
-#### Image Style Transfer
-```
-CUDA_VISIBLE_DEVICES=0 python image_transfer.py --mode photorealistic --ckpoint checkpoints/photo_image.pt --content data/content/01.jpg  --style data/style/01.jpg
-``` 
-```
-CUDA_VISIBLE_DEVICES=0 python image_transfer.py --mode artistic --ckpoint checkpoints/art_image.pt --content data/content/02.jpg  --style data/style/02.png
-``` 
-
-* `mode`: photorealistic or artistic.
-* `ckpoint`: path to the model checkpoint.
-* `content`: path to the content image.
-* `style`: path to the style image.
-* `auto_seg`: set `True` to use segmentation model (e.g. SegFormer).
-* `content_seg` (optional): path to the manually generated content segmentation if `auto_seg=False`.
-* `style_seg` (optional): path to the manually generated style segmentation if `auto_seg=False`.
-* `max_size`: maximum output image size of long edge.
-* `alpha_c`: interpolation between content and style if segmentation is None.
-
-Note: Using the video model ckpoint also works. If content_seg and style_seg are provided, it's recommended to use lossless files (e.g., png) as the compression files (e.g., jpg) may have noise label.
-
-#### Video Style Transfer
-```
-CUDA_VISIBLE_DEVICES=0 python video_transfer.py --mode photorealistic --ckpoint checkpoints/photo_video.pt --video data/content/03.avi  --style data/style/03.jpeg
-``` 
-```
-CUDA_VISIBLE_DEVICES=0 python video_transfer.py --mode artistic --ckpoint checkpoints/art_video.pt --video data/content/04.avi  --style data/style/04.jpg
-``` 
-
-* `mode`: photorealistic or artistic.
-* `ckpoint`: path to the model checkpoint.
-* `video`: path to the input video or frame directory.
-* `style`: path to the style image.
-* `auto_seg`: set `True` to use segmentation model (e.g. SegFormer).
-* `max_size`: maximum output video size of long edge.
-* `alpha_c`: interpolation between content and style if segmentation is None.
-* `fps`: video frames per second
-
-Note: Set `--auto_seg True` to automatically generate semantic segmentation for better stylization effects. For more information on how to automatically or manually generate semantic segmentation, please refer to [Link](https://github.com/NVIDIA/FastPhotoStyle/blob/master/TUTORIAL.md) (where we get inspiration and benefit a lot from).
-
-![](assets/video_transfer_segmentaiton.webp)
-
-## Train
-Download the pre-trained VGG19 ([google drive](https://drive.google.com/drive/folders/19xlQVprXdPJ9bhfnVEJ1ruVST-NuIlIE?usp=share_link)) and save at ```checkpoints/vgg_normalised.pth```. 
-
-Download dataset [MS_COCO](http://images.cocodataset.org/zips/train2014.zip), [WikiArt](https://www.wikiart.org/) or your own dataset.
-You need to provide two folders for params ```--train_content``` and ```--train_style``` respectively. And the two folders can be the same.
-
-An example of how a folder can look like. 
-```
-/path_to_dir/img_1.jpg
-/path_to_dir/img_2.png
-/path_to_dir/img_3.png
-...
-/path_to_dir/sub_dirA/img_4.jpg
-/path_to_dir/sub_dirB/sub_dirC/img_5.png
-...
+## Installation
+Install PyTorch first. Visit the [official instructions](https://pytorch.org/get-started/locally/) and choose either a CUDA build (based on your individual `nvcc` version) or the CPU wheels. Example commands:
+```bash
+# GPU build (replace cu118 with your CUDA version)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+# or CPU only
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 ```
 
-* Train photorealistic model
+
+
+<b><font color="red">WARNING: NOT YET IMPLEMENTED WITH BUILD BACKEND</font></b>
+
+
+<b><font color="red">IN THE FUTURE:</font></b> With PyTorch available, install `mcapst` from source:
+```bash
+pip install mcapst            # minimal install
+pip install mcapst[train]     # with training extras
+pip install mcapst[infer]     # with inference extras
 ```
-CUDA_VISIBLE_DEVICES=0 python train.py --mode photorealistic --train_content /path/to/COCO/directory  --train_style /path/to/COCO/directory
-``` 
-* Train artistic model
+
+### Getting Pretrained Checkpoints
+Download the model weights from [Google Drive](https://drive.google.com/drive/folders/19xlQVprXdPJ9bhfnVEJ1ruVST-NuIlIE?usp=share_link) and place them in a local `checkpoints/` directory.
+
+**COMING SOON**: setup scripts to download and organize pre-trained checkpoints and outside dependencies automatically.
+
+
+
+## Usage Examples
+The package exposes command line interfaces for training and inference as well as Python classes for programmatic use.
+
+### CLI
+Run inference on an image:
+```bash
+python -m mcapst.infer \
+  --modality image \
+  --input-path data/content/01.jpg \
+  --output-path results \
+  --transfer-mode photorealistic \
+  --ckpt-path checkpoints/photo_image.pt \
+  --alpha-s 0.7
 ```
-CUDA_VISIBLE_DEVICES=0 python train.py --mode artistic --train_content /path/to/COCO/directory  --train_style /path/to/WikiArt/directory --lap_weight 1 --rec_weight 1
-``` 
-Check log images at ```logs/XXX/index.html```. After training, you will have the checkpoints of image model and video model in ```logs/XXX/checkpoints``` directory.
+
+Train on a pair of content and style image datasets:
+```bash
+python -m mcapst.train \
+  --modality image \
+  --transfer-mode artistic \
+  --data-cfg.train_content path/to/content \
+  --data-cfg.train_style path/to/style \
+  --logs-directory logs/run1
+```
+
+Important flags:
+* `--transfer-mode`: `photorealistic` or `artistic`.
+* `--modality`: `image` or `video`.
+* `--input-path` / `--data-cfg.train_content`: paths to content data.
+* `--data-cfg.train_style`: path to style data (training only).
+* `--ckpt-path`: location of a pretrained checkpoint.
+* `--output-path`: directory for results.
+* `--alpha-s` / `--alpha-c`: blending weights for style and content.
+* `--max-size`: maximum spatial resolution.
+
+
+### Python API
+```python
+from mcapst.infer import ImageInferenceOrchestrator, InferenceConfig
+
+cfg = InferenceConfig(modality="image",
+                      input_path="data/content/01.jpg",
+                      output_path="results",
+                      transfer_mode="photorealistic")
+runner = ImageInferenceOrchestrator(cfg)
+runner.run_inference()
+```
+
+Training can be launched in a similar manner using `ImageTrainer`, `VideoTrainer` and the associated `TrainingConfig`.
+
+
+## Training
+Download the VGG19 weights ([Google Drive](https://drive.google.com/drive/folders/19xlQVprXdPJ9bhfnVEJ1ruVST-NuIlIE?usp=share_link)) and place `vgg_normalised.pth` under `checkpoints/`. This will likely be replaced with setup scripts to do this automatically in the near future.
+
+The original CAP-VSTNet implementation trained model checkpoints (e.g. the `photo_image.pt` and `art_video.pt`) using the MS-COCO dataset for content images of both "photorealistic" and "artistic" modes, as well as the style images for "photorealistic" models, and the WikiArt dataset for style images in "artistic" models.
+
+`mcapst` provides a simpler approach to training using remote datasets streamed from Hugging Face via its `datasets` API, but still allows for your own local datasets specified by CLI/config parameters `--train_content` and `--train_style` respectively. The two folders may be the same.
+If you would like to download these datasets locally anyway, the following were used by the original CAP-VSTNet authors:
+  - [MS_COCO](http://images.cocodataset.org/zips/train2014.zip)
+  - [WikiArt](https://www.wikiart.org/)
+
+
+After initial setup, launch training with the CLI shown in [[###CLI]] or build the configuration in Python:
+```python
+from mcapst.train import ImageTrainer, TrainingConfig
+
+cfg = TrainingConfig(modality="image",
+                     data_cfg={"train_content": "path/to/content",
+                               "train_style": "path/to/style"})
+trainer = ImageTrainer(cfg)
+trainer.train()
+```
+
+Training logs are saved inside the directory specified by `logs_directory` in the configuration (default: `logs/`). This is subject to change in the future, as the Tensorboard logging hasn't been updated from the original CAP-VSTNet repo.
+
+New trained model checkpoints are saved in the `checkpoints/` directory as `.pt` files with time-stamped filenames by default.
+
+
+### Inference
+
+**COMING SOON**
+
 
 
 ## Results
@@ -130,16 +146,18 @@ Check log images at ```logs/XXX/index.html```. After training, you will have the
 ![](assets/art_interpolation.png)
 
 
-### Ultra-resolution
-An example of 4K images stylization
+## Remaining Issues
+The original repo mentions remaining issues that were never completely addressed in the new implementation, partially because my own motivation in re-implementing much of this project was to use (specifically content-affinity preserving) style transfer as a training-time augmentation while training my semantic segmentation networks.
 
-<p align="center">
-<img src=assets/ultra_resoluttion.png>
-</p>
+### Issues Inherited from CAP-VSTNet
+
+1. Flow, Temporal Loss and Heatmap
+   - See [issues#11](https://github.com/linfengWen98/CAP-VSTNet/issues/11#issuecomment-1749932696)
+   - In the future, I hoped to integrate a small [RAFT](https://docs.pytorch.org/vision/0.12/auto_examples/plot_optical_flow.html) model to predict optical flow
 
 
-## Flow, Temporal Loss and Heatmap
-See [issues#11](https://github.com/linfengWen98/CAP-VSTNet/issues/11#issuecomment-1749932696)
+
+
 
 
 ## Citation
@@ -152,7 +170,3 @@ See [issues#11](https://github.com/linfengWen98/CAP-VSTNet/issues/11#issuecommen
   year={2023}
 }
 ```
-
-
-## Acknowledgement
-We thank the great work [PhotoWCT](https://github.com/NVIDIA/FastPhotoStyle/blob/master/TUTORIAL.md), [LinearWCT](https://github.com/sunshineatnoon/LinearStyleTransfer) and [ArtFlow](https://github.com/pkuanjie/ArtFlow).

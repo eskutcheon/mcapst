@@ -223,7 +223,7 @@ class VideoInferenceOrchestrator(BaseInferenceOrchestrator):
             stylized_frames = self.stylizer.transform(
                 sample=video_path,
                 # TODO: add a sampler to select style images from a default directory defined in the config
-                # !! Remove later - temporaryly hard-coded to use the same style image for all videos
+                # !! Remove later - temporarily hard-coded to use the same style image for all videos
                 style_paths = [os.path.realpath(r"data/style/01.jpg")],   # or pass something else
                 alpha_c = parsed["alpha_c"],
                 alpha_s = parsed["alpha_s"],

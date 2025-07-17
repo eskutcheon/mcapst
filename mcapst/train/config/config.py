@@ -122,6 +122,7 @@ class TrainingConfig:
             print("WARNING: temporal_weight > 0.0 but modality is not 'video'. This will have no effect.")
             self.loss_cfg.temporal_weight = 0.0  # reset to 0.0 if not video
         elif self.loss_cfg.temporal_weight == 0.0 and self.modality == "video":
+            # TODO: might want to just fall back on the default temporal weight (think it's 10.0)
             raise ValueError("temporal_weight must be > 0.0 for video stylization. Please specify a positive value or omit the argument.")
         # Additional checks
         if self.training_iterations < 1 or not isinstance(self.training_iterations, int):

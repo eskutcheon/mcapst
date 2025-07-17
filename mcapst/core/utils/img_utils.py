@@ -68,7 +68,8 @@ def post_transfer_blending(content_img, pastiche_img, c_weight=0.5, p_weight=0.5
     """ implement the blending with specified weights to average the original content image and the pastiche image """
     # OR just have two different blending functions for photorealistic and artistic transfer, using an isotropic guided filter for the artistic transfer
     normalizer: callable = TT.ToDtype(torch.float32, scale=True)
-    if (weight_sum := c_weight + p_weight) != 1:
+    weight_sum = c_weight + p_weight # removed use of the walrus operator for earlier Python versions
+    if weight_sum != 1:
         c_weight /= weight_sum
         p_weight /= weight_sum
     return c_weight * normalizer(content_img) + p_weight * normalizer(pastiche_img)

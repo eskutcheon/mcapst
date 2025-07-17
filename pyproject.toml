@@ -4,16 +4,45 @@
 [project]
 name = "mcapst"
 version = "0.1.0"
+authors = [{name = "eskutcheon"}]
+description = "'Modular Content Affinity Preserved Style Transfer' for stylization of images and videos based on CAP-VSTNet"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
 dependencies = [
-
+    "PyYAML>=6.0.2",
+    "dataclasses>=0.6",
+    "pillow>=11.1.0",
+    "numpy>=2.2.1",
+    "kornia>=0.8.0",
+    "pytest>=8.3.4",
+    "tqdm>=4.67.1",
 ]
 
 
 
 [project.optional-dependencies]
 train = [
-
+    "tensorboard>=2.18.0",
+    "datasets>=3.2.0",
 ]
 infer = [
-
 ]
+
+
+[project.scripts]
+"mcapst-train" = "mcapst.train.__main__:main"
+"mcapst-infer" = "mcapst.infer.__main__:main"
+
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+
+[project.urls]
+Homepage = "https://github.com/eskutcheon/mcapst"

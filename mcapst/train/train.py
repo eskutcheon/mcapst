@@ -2,17 +2,15 @@ import os
 from typing import Dict, Union, Optional, Any, Callable
 from tqdm import tqdm
 import torch
-from torch import nn
 # TODO: extract to a new logging file later
 from torch.utils.tensorboard import SummaryWriter
 # local imports
 from mcapst.core.models.VGG import VGG19
 from mcapst.train.datasets.orchestrator import DataManager
-#from mcapst.config.configure import ConfigManager, TrainingConfig
 from mcapst.train.config.config import TrainingConfig, TrainingConfigManager
 from mcapst.train.loss.manager import LossManager
-# TODO: might want to move this to the train submodule later
 from mcapst.core.utils.loss_utils import RunningMeanLoss
+
 
 
 TRANSFER_MODE_ALIASES = {
@@ -56,7 +54,7 @@ class TrainerBase:
             except KeyError:
                 raise ValueError(f"Invalid transfer mode: '{mode}'!\nExpected one of {all_modes}.")
 
-    def set_model_and_optimizer(self, model: nn.Module):
+    def set_model_and_optimizer(self, model: torch.nn.Module):
         self.model = model
         # Initialize model and optimizer
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config.lr)
@@ -144,7 +142,7 @@ class ImageTrainer(TrainerBase):
             # back-propagation gradient computation and optimization
             total_loss: torch.Tensor = losses["total"]
             total_loss.backward()
-            nn.utils.clip_grad_norm_(self.model.parameters(), grad_clip_magnitude)
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), grad_clip_magnitude)
             self.optimizer.step()
             # logging and checkpointing steps (only log every log_interval iterations)
             if (self.current_iter + 1) % log_interval == 0:
@@ -215,7 +213,7 @@ class VideoTrainer(TrainerBase):
             # Back-propagation and optimization
             total_loss: torch.Tensor = losses["total"]
             total_loss.backward()
-            nn.utils.clip_grad_norm_(self.model.parameters(), grad_clip_magnitude)
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), grad_clip_magnitude)
             self.optimizer.step()
             # logging and checkpointing steps (only log every log_interval iterations)
             if (self.current_iter + 1) % log_interval == 0:
