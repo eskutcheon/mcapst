@@ -91,6 +91,9 @@ def transform_preprocess(func: Callable) -> Callable:
         )
         # Safeguards for ensuring proper formatting of `args.style_paths` + converting to batch tensor
         args.style_paths = cls.process_style_sources(args.style_paths)
+        # if isinstance(sample, str) and os.path.isfile(sample):
+        #     # if sample is a path-like string, read the image and convert it to a tensor
+        #     sample = IO.read_image(sample, mode=IO.ImageReadMode.RGB)
         # handle the weights using initialization of StyleWeights objects
         # TODO: ensure proper types upstream and add error checking here
         content_batch_size = sample.shape[0] if isinstance(sample, torch.Tensor) else sample["img"].shape[0]

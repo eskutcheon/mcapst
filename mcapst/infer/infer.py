@@ -124,7 +124,7 @@ class ImageInferenceOrchestrator(BaseInferenceOrchestrator):
         input_files = kwargs.get("input_files", self.config.input_path)
         input_files = ensure_file_list_format(input_files)
         # handle remaining arguments in the same way
-        style_files = kwargs.get("style_files", self.config.input_path)  # Possibly config.style_path if you have it
+        style_files = kwargs.get("style_paths", [os.path.realpath(r"data/style/01.jpg")])
         style_files = ensure_file_list_format(style_files)
         alpha_c = kwargs.get("alpha_c", self.config.alpha_c)
         alpha_s = kwargs.get("alpha_s", self.config.alpha_s)
@@ -136,7 +136,7 @@ class ImageInferenceOrchestrator(BaseInferenceOrchestrator):
         # return the dictionary of final arguments for run_inference
         return {
             "input_files": input_files,
-            "style_files": style_files,
+            "style_paths": style_files,
             "alpha_c": alpha_c,
             "alpha_s": alpha_s,
             "save_output": save_output,
@@ -155,7 +155,7 @@ class ImageInferenceOrchestrator(BaseInferenceOrchestrator):
             # in a real scenario, you’d pass in your actual style images or style mask paths:
             pastiche = self.stylizer.transform(
                 sample = content_tensor,
-                style_paths = parsed["style_files"],
+                style_paths = parsed["style_paths"],
                 alpha_c = parsed["alpha_c"],
                 alpha_s = parsed["alpha_s"],
                 # mask_paths=..., or use_segmentation=..., etc. if relevant
@@ -197,6 +197,8 @@ class VideoInferenceOrchestrator(BaseInferenceOrchestrator):
         # if user passed `input_files` explicitly, use it; otherwise fallback to config.input_path
         video_list = kwargs.get("video_list", self.config.input_path)
         video_list = ensure_file_list_format(video_list)
+        style_files = kwargs.get("style_paths", [os.path.realpath(r"data/style/01.jpg")])
+        style_files = ensure_file_list_format(style_files)
         alpha_c = kwargs.get("alpha_c", self.config.alpha_c)
         alpha_s = kwargs.get("alpha_s", self.config.alpha_s)
         save_output = kwargs.get("save_output", True)
@@ -205,6 +207,7 @@ class VideoInferenceOrchestrator(BaseInferenceOrchestrator):
             os.makedirs(output_path, exist_ok=True)
         return {
             "video_list": video_list,
+            "style_paths": style_files,
             "alpha_c": alpha_c,
             "alpha_s": alpha_s,
             "save_output": save_output,
@@ -223,8 +226,7 @@ class VideoInferenceOrchestrator(BaseInferenceOrchestrator):
             stylized_frames = self.stylizer.transform(
                 sample=video_path,
                 # TODO: add a sampler to select style images from a default directory defined in the config
-                # !! Remove later - temporarily hard-coded to use the same style image for all videos
-                style_paths = [os.path.realpath(r"data/style/01.jpg")],   # or pass something else
+                style_paths=parsed["style_paths"],
                 alpha_c = parsed["alpha_c"],
                 alpha_s = parsed["alpha_s"],
                 save_output = parsed["save_output"],    # let stylizer write to disk if True

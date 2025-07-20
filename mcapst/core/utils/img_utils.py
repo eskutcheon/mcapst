@@ -1,7 +1,6 @@
 from typing import Dict, List, Literal, Union, Iterable, Callable, Tuple, Any
 import torchvision.transforms.v2 as TT
 import torch
-import kornia.filters as KF
 
 
 
@@ -75,13 +74,18 @@ def post_transfer_blending(content_img, pastiche_img, c_weight=0.5, p_weight=0.5
     return c_weight * normalizer(content_img) + p_weight * normalizer(pastiche_img)
 
 
-def post_transfer_guided_filter(content_img, pastiche_img, blur_factor=1e-6):
-    """ a post-transfer blending function intended more for artistic style transfer to bring it back toward the content image structure """
-    content_img = ensure_batch_tensor(content_img)
-    pastiche_img = ensure_batch_tensor(pastiche_img)
-    # ? NOTE: should be an implementation of this in kornia
-    # ? kornia.filters.GuidedBlur or kornia.filters.guided_blur is almost what I intended - set content_img as guidance, kernel_size of 1, and very small eps
-    # ? might also make sense to use a bilateral blur based on Kaiming He's recommendation - https://arxiv.org/abs/1505.00996
-    # https://kornia.readthedocs.io/en/latest/filters.html
-    # TODO: change sampling size to speed it up
-    return KF.guided_blur(content_img, pastiche_img, kernel_size=11, eps=blur_factor, subsample=4)
+
+# commenting this out to remove the kornia dependency since the function is unused, but it may be worth adding back later
+
+# import kornia.filters as KF
+
+# def post_transfer_guided_filter(content_img, pastiche_img, blur_factor=1e-6):
+#     """ a post-transfer blending function intended more for artistic style transfer to bring it back toward the content image structure """
+#     content_img = ensure_batch_tensor(content_img)
+#     pastiche_img = ensure_batch_tensor(pastiche_img)
+#     # ? NOTE: should be an implementation of this in kornia
+#     # ? kornia.filters.GuidedBlur or kornia.filters.guided_blur is almost what I intended - set content_img as guidance, kernel_size of 1, and very small eps
+#     # ? might also make sense to use a bilateral blur based on Kaiming He's recommendation - https://arxiv.org/abs/1505.00996
+#     # https://kornia.readthedocs.io/en/latest/filters.html
+#     # TODO: change sampling size to speed it up
+#     return KF.guided_blur(content_img, pastiche_img, kernel_size=11, eps=blur_factor, subsample=4)

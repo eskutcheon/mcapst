@@ -1,8 +1,48 @@
 
+# import os
 import argparse
 from dataclasses import is_dataclass, asdict, fields
 from typing import Any, Dict, Optional, Type, Union
 import yaml
+
+
+#? NOTE: added the classes and functions below from another project - may or may not end up using them
+
+# class DownloadDataAction(argparse.Action):
+#     def __call__(self, parser, namespace, values, option_string=None):
+#         # not sure if I want to add this to a parser to avoid this:
+#         data_source = src.config.config.DataSet().DATA_SOURCE
+#         dest_dir = namespace.directories.data
+#         print(f'Downloading dataset from {data_source} to {dest_dir}...')
+#         data_dest = os.path.abspath(dest_dir)
+#         util.download_dataset(data_source, data_dest)
+
+def validate_normed_float(value, allow_zero=False):
+    try:
+        var = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"Value must be a numeric type")
+    if not allow_zero and var == 0:
+        raise argparse.ArgumentTypeError(f'Given value {var} must be greater than 0.')
+    if var < 0 or var > 1:
+        raise argparse.ArgumentTypeError(f'Given value {var} must be a float in range [0,1].')
+    return var
+
+def normed_float(value):
+    return validate_normed_float(value, allow_zero=False)
+
+def probability(value):
+    return validate_normed_float(value, allow_zero=True)
+
+def natural_number(value):
+    try:
+        value = int(value)
+    except:
+        raise ValueError(f"ERROR: natural_number value must be cast-able to integer type; got type {type(value)}")
+    if value < 1 or not isinstance(value, int):
+        raise argparse.ArgumentTypeError(f'given value {value} must be an integer >= 1')
+    return int(value)
+
 
 
 #? NOTE: below is partially AI-generated from the original ConfigManager, which used more
@@ -27,7 +67,7 @@ class BaseConfigManager:
         args, _ = self.parser.parse_known_args()
         # apply CLI overrides to the top-level config arguments
         self._apply_overrides(self.config, args)
-        self._rerun_post_init()
+        #self._rerun_post_init()
 
     def _load_yaml_config(self, config_path: str) -> Dict[str, Any]:
         """ Loads settings from a YAML configuration file and updates defaults """

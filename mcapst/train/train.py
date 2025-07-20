@@ -9,7 +9,7 @@ from mcapst.core.models.VGG import VGG19
 from mcapst.train.datasets.orchestrator import DataManager
 from mcapst.train.config.config import TrainingConfig, TrainingConfigManager
 from mcapst.train.loss.manager import LossManager
-from mcapst.core.utils.loss_utils import RunningMeanLoss
+from mcapst.train.loss.loss_utils import RunningMeanLoss
 
 
 
@@ -27,7 +27,7 @@ class TrainerBase:
         self._normalize_mode(mode = self.config.transfer_mode)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.current_iter = 0
-        self.total_iterations = self.config.training_iterations # + self.config.fine_tuning_iterations
+        self.total_iterations = self.config.train_iter # + self.config.fine_tuning_iterations
         self.writer = SummaryWriter(log_dir=self.config.logs_directory)
         self.data_manager = DataManager(self.config.transfer_mode, self.config.data_cfg)
         style_encoder: Callable = VGG19(self.config.loss_cfg.vgg_ckpt).to(device=self.device)

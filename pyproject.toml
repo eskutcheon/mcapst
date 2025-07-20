@@ -1,10 +1,13 @@
 
-
+# referencing https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#writing-pyproject-toml
 
 [project]
 name = "mcapst"
 version = "0.1.0"
 authors = [{name = "eskutcheon"}]
+maintainers = [
+    {name = "eskutcheon", email = "jkutch326@tutanota.com"}
+]
 description = "'Modular Content Affinity Preserved Style Transfer' for stylization of images and videos based on CAP-VSTNet"
 readme = "README.md"
 license = "MIT"
@@ -12,16 +15,27 @@ license-files = ["LICENSE"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
+] # circle back to this with intended audiences, topics, environments, more specific Python versions, etc.
+keywords = [
+    "style-transfer",
+    "CAP-VSTNet",
+    "neural-networks",
+    "image-processing",
+    "video-processing",
+    "deep-learning",
+    "computer-vision",
 ]
 dependencies = [
     "PyYAML>=6.0.2",
     "dataclasses>=0.6",
     "pillow>=11.1.0",
     "numpy>=2.2.1",
-    "kornia>=0.8.0",
+    #"kornia>=0.8.0", # hoping to remove this from the general utils later and make it an inference-only dependency
     "pytest>=8.3.4",
     "tqdm>=4.67.1",
+    "gdown>=5.2.0"
 ]
+requires-python = ">=3.8" # just a guess, but 3.7 is the minimum version that supports dataclasses and f-strings
 
 
 
@@ -31,6 +45,7 @@ train = [
     "datasets>=3.2.0",
 ]
 infer = [
+    "av==15.0.0"
 ]
 
 
@@ -40,9 +55,15 @@ infer = [
 
 
 [build-system]
-requires = ["setuptools>=61", "wheel"]
+requires = ["setuptools>=63", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["mcapst"]
 
 
 [project.urls]
 Homepage = "https://github.com/eskutcheon/mcapst"
+# TODO: add Documentation and Issues links when available
+
+# TODO: consider adding [project.entry-points] later for CLI/GUI commands

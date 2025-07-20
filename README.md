@@ -1,40 +1,64 @@
-# CAP-VSTNet: Content Affinity Preserved Versatile Style Transfer (CVPR 2023)
+# MCAPST: Modular Content Affinity-Preserved Style Transfer
 
-### [**Paper**](https://arxiv.org/abs/2303.17867) | [**Poster**](https://cvpr2023.thecvf.com/media/PosterPDFs/CVPR%202023/22374.png?t=1685361737.0440488) | [**Video 1**](https://youtu.be/Mks9_xQNE_8) | [**Video 2**](https://youtu.be/OTJ1wEe29Hc)
-
-<!-- teaser image placeholder -->
-![](assets/image_stylization.webp)
+### **A modular re-implementation of** [CAP-VSTNet: Content Affinity Preserved Versatile Style Transfer (CVPR 2023)]((https://arxiv.org/abs/2303.17867))
 
 ## Project Overview
-This repository reorganizes the original CAP-VSTNet implementation into a pip‑installable Python package named `mcapst`. Major additions include a dataclass-based configuration system, modular training and inference pipelines, and utility classes for processing images or videos. Both training and inference can be invoked from the command line or used as a Python API. Note that this is the first time I've packaged a repository and there may be mistakes along the way.
+This repository reorganizes the original CAP-VSTNet implementation into a pip‑installable Python package named `mcapst`. Major additions include a dataclass-based configuration system, modular training and inference pipelines, and utility classes for processing images or videos. Both training and inference can be invoked from the command line or used as a Python API.
+
+**DISCLAIMER:** This is the first time I've packaged a repository and I'm still learning that process. I also may be more careless with releases until I know anyone besides myself is using it.
+
+
+![](assets/image_stylization.webp)
+
+
+### Features (Current + Planned)
+- Perform simple style transfer using any provided content and style images
+- Train new style transfer networks specialized for artistic or photorealistic style transfer
+- Perform style transfer on video inputs with smooth temporal consistency, using any style image(s)
+- Apply multiple styles to a single content image with seamless blending
+- Use content/style segmentation masks during inference to apply region-based stylization
+- Simple data loading pipelines for training and parallelized dispatchers for inference
+- [ ] TODO: On-the-fly segmentation mask generation and guidance during style transfer inference
+- [ ] TODO: Train video-based models using real optical flow inputs computed by a RAFT model
 
 
 ## Installation
-Install PyTorch first. Visit the [official instructions](https://pytorch.org/get-started/locally/) and choose either a CUDA build (based on your individual `nvcc` version) or the CPU wheels. Example commands:
+**Install PyTorch first.** Visit the [official instructions](https://pytorch.org/get-started/locally/) and choose either a CUDA build (based on your individual version shown by running `nvcc --version`) or the CPU wheels. Example commands:
 ```bash
-# GPU build (replace cu118 with your CUDA version)
+# CPU only
+pip install torch torchvision
+# or GPU build (replace cu118 with your CUDA version)
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
-# or CPU only
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+```
+
+#### CURRENTLY
+The easiest way to install dependencies at the moment (until I finish packaging) is the typical
+```bash
+pip install -r requirements.txt # all dependencies for both train and infer modes besides PyTorch
 ```
 
 
+---
 
-<b><font color="red">WARNING: NOT YET IMPLEMENTED WITH BUILD BACKEND</font></b>
+#### LATER
+<font color="red"><b>WARNING: NOT YET IMPLEMENTED WITH BUILD BACKEND</b></font>
 
-
-<b><font color="red">IN THE FUTURE:</font></b> With PyTorch available, install `mcapst` from source:
+With PyTorch available, install `mcapst` from source:
 ```bash
 pip install mcapst            # minimal install
 pip install mcapst[train]     # with training extras
 pip install mcapst[infer]     # with inference extras
 ```
 
+---
+
 ### Getting Pretrained Checkpoints
-Download the model weights from [Google Drive](https://drive.google.com/drive/folders/19xlQVprXdPJ9bhfnVEJ1ruVST-NuIlIE?usp=share_link) and place them in a local `checkpoints/` directory.
+Download the pre-trained model weights from [Google Drive](https://drive.google.com/drive/folders/19xlQVprXdPJ9bhfnVEJ1ruVST-NuIlIE?usp=share_link) and place them in a top-level (i.e. `tests` should be at the same level) `checkpoints/` directory. This drive also includes a trained VGG checkpoint used during training to compute the style and content losses.
 
-**COMING SOON**: setup scripts to download and organize pre-trained checkpoints and outside dependencies automatically.
+You will also be prompted to automatically download (if you haven't already) only the necessary default checkpoints before training or inference begins if you specified the default checkpoint paths (or don't specify any path).
 
+>[!NOTE] Planned:
+> In the future, I'll most likely be adding the option to default to loading models from the HuggingFace Hub as well.
 
 
 ## Usage Examples
@@ -63,14 +87,20 @@ python -m mcapst.train \
 ```
 
 Important flags:
-* `--transfer-mode`: `photorealistic` or `artistic`.
-* `--modality`: `image` or `video`.
-* `--input-path` / `--data-cfg.train_content`: paths to content data.
-* `--data-cfg.train_style`: path to style data (training only).
-* `--ckpt-path`: location of a pretrained checkpoint.
-* `--output-path`: directory for results.
-* `--alpha-s` / `--alpha-c`: blending weights for style and content.
-* `--max-size`: maximum spatial resolution.
+* `--transfer-mode`: (both modes) Either `photorealistic` or `artistic`
+* `--modality`: (both) Either `image` or `video` - the data modality during inference or the training approach
+* `--use_local_data`: (training) flag specifying whether `train_content` or `train_style` are local paths or not
+* `--data-cfg.train_content`: (training) paths to content data; expects a path to a directory of images or a HF link
+* `--data-cfg.train_style`: (training) path to style image data; expects a path to a directory of images or a HF link
+* `--train_iter`: (training) number of batches to train on (like the original, epochs aren't explicitly used)
+* `--batch_size`: (training) integer specifying batch size during training
+* `--new_size`: (training) integer specifying the longest dimension allowed during training
+* `--ckpt-path`: (both) location of a pre-trained CAP-VSTNet checkpoint or path to save a new one
+* `--input-path`: (inference) paths to content data - accepts single file paths, directory paths, or a list of paths
+* `--style_paths`: (inference) paths to style images - accepts the same inputs as `input-path`
+* `--output-path`: (inference) directory for saving stylized results
+* `--alpha-s` / `--alpha-c`: (inference) blending weights for style and content, respectively
+
 
 
 ### Python API
@@ -85,21 +115,24 @@ runner = ImageInferenceOrchestrator(cfg)
 runner.run_inference()
 ```
 
-Training can be launched in a similar manner using `ImageTrainer`, `VideoTrainer` and the associated `TrainingConfig`.
+- Training can be launched in a similar manner using `ImageTrainer`, `VideoTrainer` and the associated `TrainingConfig`.
+- Note that this hasn't been fully tested yet and the CLI options are still preferred at the moment.
+
 
 
 ## Training
-Download the VGG19 weights ([Google Drive](https://drive.google.com/drive/folders/19xlQVprXdPJ9bhfnVEJ1ruVST-NuIlIE?usp=share_link)) and place `vgg_normalised.pth` under `checkpoints/`. This will likely be replaced with setup scripts to do this automatically in the near future.
+Download the VGG19 weights ([Google Drive](https://drive.google.com/drive/folders/19xlQVprXdPJ9bhfnVEJ1ruVST-NuIlIE?usp=share_link)) and place `vgg_normalised.pth` under `checkpoints/`. You can also wait to be prompted to automatically download `vgg_normalised.pth` before training begins in the same way as the pre-trained models for inference.
 
-The original CAP-VSTNet implementation trained model checkpoints (e.g. the `photo_image.pt` and `art_video.pt`) using the MS-COCO dataset for content images of both "photorealistic" and "artistic" modes, as well as the style images for "photorealistic" models, and the WikiArt dataset for style images in "artistic" models.
+The original CAP-VSTNet implementation trained model checkpoints (e.g. `photo_image.pt` and `art_video.pt`) using the MS-COCO dataset for content images of both "photorealistic" and "artistic" modes, as well as the style images for "photorealistic" models, and the WikiArt dataset for style images in "artistic" models.
 
-`mcapst` provides a simpler approach to training using remote datasets streamed from Hugging Face via its `datasets` API, but still allows for your own local datasets specified by CLI/config parameters `--train_content` and `--train_style` respectively. The two folders may be the same.
+`mcapst` provides a simpler approach to training using remote datasets streamed from Hugging Face via its `datasets` API, but still allows for your own local datasets specified by CLI/config parameters `--train_content` and `--train_style` respectively. The two directories may be the same.
+
 If you would like to download these datasets locally anyway, the following were used by the original CAP-VSTNet authors:
   - [MS_COCO](http://images.cocodataset.org/zips/train2014.zip)
   - [WikiArt](https://www.wikiart.org/)
 
 
-After initial setup, launch training with the CLI shown in [[###CLI]] or build the configuration in Python:
+After initial setup, launch training as shown in [[### CLI]] or build the configuration in Python:
 ```python
 from mcapst.train import ImageTrainer, TrainingConfig
 
@@ -156,9 +189,9 @@ The original repo mentions remaining issues that were never completely addressed
    - In the future, I hoped to integrate a small [RAFT](https://docs.pytorch.org/vision/0.12/auto_examples/plot_optical_flow.html) model to predict optical flow
 
 
-
-
-
+## Acknowledgements
+- **Credit to [linfengWen98](https://github.com/linfengWen98)** for all image assets used in this README. They'll eventually be replaced by real examples after tracking down source images, re-running style transfer inference, and creating new figures.
+- **Credit to the original [CAP-VSTNet](https://github.com/linfengWen98/CAP-VSTNet)** for being the starting point for this new repository. The citation from their original paper is below in [[## Citation]]
 
 ## Citation
 ```

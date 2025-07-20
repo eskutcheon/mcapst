@@ -10,18 +10,18 @@ def main():
     # Create a temporary config file
     config_path = "temp_config.yaml"
     config = {
-        "base_name": "test_run_video", # "test_run",
+        "run_name": "test_run_images", # "test_run",
         "transfer_mode": "photorealistic",
-        "modality": "video",  # "image",
+        "modality": "image",  # "image",
         "lr": 1e-4,
         "lr_decay": 5e-5,
         "data_cfg": {
             #"train_content": "data/train_content",
             #"train_style": "data/train_style",
-            "batch_size": 2,
+            "batch_size": 4,
             "new_size": 512,
-            "crop_size": 256,
-            "use_local_datasets": False,
+            #"crop_size": 256,
+            "use_local_data": False,
             # "use_segmentation": False, # not implemented with the Laplacian yet
         },
         "loss_cfg": {
@@ -29,12 +29,12 @@ def main():
             "content_weight": 0.0,
             "lap_weight": 200.0,      # Laplacian weight
             "rec_weight": 10,       # Reconstruction (cycle consistency) loss weight
-            "temporal_weight": 20.0,   # Temporal loss weight (only relevant for video stylization)
+            "temporal_weight": 0.0,   # Temporal loss weight (only relevant for video stylization)
             "vgg_ckpt": "checkpoints/vgg_normalised.pth",
         },
-        "training_iterations": 20,
+        "train_iter": 20,
         "resume": False,
-        "logs_directory": "logs",
+        "logs_directory": r"logs",
         "model_save_interval": 100,
         "log_interval": 5,  # log every 5 iterations
         "grad_max_norm": 5.0,
@@ -43,8 +43,8 @@ def main():
         yaml.dump(config, file)
     # load ConfigManager and initialize training
     config_manager = TrainingConfigManager(config_path=config_path)
-    #trainer = ImageTrainer(config_manager.get_config())
-    trainer = VideoTrainer(config_manager.get_config())
+    trainer = ImageTrainer(config_manager.get_config())
+    #trainer = VideoTrainer(config_manager.get_config())
     trainer.train()
     # clean up
     os.remove(config_path)

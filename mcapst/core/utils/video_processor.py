@@ -28,7 +28,11 @@ class VideoProcessor:
         """
         # placeholder implementation with dependency injection - will replace this internal logic with torchcodec later
         if self.backend == "torchvision":
-            return VideoReader(video_src)
+            try:
+                return VideoReader(video_src)
+            except AttributeError as e:
+                # have to catch this as an AttributeError because torchvision just tries to do av.open() and av is seen as an ImportError
+                raise ModuleNotFoundError("a video codec backend is required for video processing, but only PyAV is currently supported.") from e
         elif self.backend == "torchcodec":
             raise NotImplementedError("torchcodec backend not yet implemented")
         else:

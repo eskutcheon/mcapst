@@ -2,7 +2,7 @@
 from typing import List, Optional, Sequence # Dict, Union, Literal,
 import torch
 import torch.nn.functional as F
-from mcapst.core.utils.loss_utils import IndexCache
+from mcapst.train.loss.loss_utils import IndexCache
 
 
 def _construct_final_L(indices_b: torch.Tensor, vals_b: torch.Tensor, N: int, win_units: int, mask: torch.Tensor=None):

@@ -127,27 +127,24 @@ def test_video_inference(transfer_type="photo"):
 
 def test_major_refactor_inference():
     from mcapst.infer import stage_inference_pipeline
-    # Define inference config
     config_path = "temp_inference.yaml"
     config = {
-        "base_name": "test_infer",
+        "run_name": "test_vid_infer1",
         "transfer_mode": "photorealistic",
-        "modality": "image",  # "video",
-        #"ckpt_path": os.path.join(ckpt_dir, "photo_image.pt"), # __post_init__ sets defaults
-        "input_path": "data/content/01.jpg",
-        "output_path": "data/test_output",
+        "modality": "video",  # "video",
+        # TODO: update to always accept a list/set/sequence of paths rather than a string
+            # or not because I just set it up for directory inputs
+        "input_path": r"data/content",
+        "style_paths": [r"data/style/05.jpg"],
+        "output_path": r"results/test_vid_infer1",
         "alpha_c": 0.0,
-        "alpha_s": 0.5,
-        "use_segmentation": False,
-        "mask_path": None,
-        "max_size": 960,
+        "alpha_s": 0.9,
     }
-    # Save configuration
+    # save YAML configuration
     with open(config_path, "w") as file:
         yaml.dump(config, file)
-    # Run inference
+    # run inference test
     results = stage_inference_pipeline(config_path=config_path)
-    print(f"Inference results: {results}")
 
 
 

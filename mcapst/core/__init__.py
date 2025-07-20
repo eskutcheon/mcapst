@@ -21,7 +21,6 @@ from .utils.img_utils import (
 from .utils.video_processor import VideoProcessor
 from .utils.label_remapping import SegLabelMapper
 from .utils.config_manager import BaseConfigManager
-from .utils.loss_utils import RunningMeanLoss
 
 __all__ = [
     "CAPVSTNet",
@@ -39,7 +38,6 @@ __all__ = [
     "VideoProcessor",
     "SegLabelMapper",
     "BaseConfigManager",
-    "RunningMeanLoss",
     "ensure_file_list_format",
     "ensure_list_format",
     "ensure_batch_tensor",

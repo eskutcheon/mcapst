@@ -15,7 +15,7 @@ def main(argv=None):
         help="Path to YAML configuration file",
     )
     args, unknown = parser.parse_known_args(argv)
-    # remove parsed args so TrainingConfigManager sees only the remaining options
+    # remove parsed args (config_path) so TrainingConfigManager sees only the remaining options in argv
     sys.argv = [sys.argv[0]] + unknown
     stage_training_pipeline(config_path=args.config_path)
 

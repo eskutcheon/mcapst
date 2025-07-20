@@ -2,7 +2,7 @@ from typing import Union, Tuple
 import torch
 import torch.nn.functional as F
 # helper class for mesh grid caching
-from mcapst.core.utils.loss_utils import MeshGridCache
+from mcapst.train.loss.loss_utils import MeshGridCache
 
 
 

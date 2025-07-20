@@ -31,7 +31,7 @@ class DataManager:
         self.split = getattr(config, "split", "train")
         self.buffer_size = getattr(config, "shuffle_buffer", 0)
         self.batch_size = getattr(config, "batch_size", 1)
-        self.use_local_datasets = getattr(config, "use_local_datasets", False)
+        self.use_local_data = getattr(config, "use_local_data", False)
             # use self.new_size for the resize transform
         resize_dim = getattr(config, "new_size", 256)
         preprocessor = TT.Compose([
@@ -50,7 +50,7 @@ class DataManager:
     def _validate_local_setting(self, root_or_name: str):
         """ checks if the provided local dataset path exists and is a valid directory """
         if not os.path.exists(root_or_name):
-            raise FileNotFoundError(f"Local dataset path '{root_or_name}' does not exist, but use_local_datasets=True. " +
+            raise FileNotFoundError(f"Local dataset path '{root_or_name}' does not exist, but use_local_data=True. " +
                                     "Please provide a valid local dataset path.")
         if not os.path.isdir(root_or_name):
             raise NotADirectoryError(f"Local dataset path '{root_or_name}' is not a directory as expected with use_local_dataset=True.")
@@ -58,7 +58,7 @@ class DataManager:
     def _validate_hf_setting(self, root_or_name: str):
         if not test_if_valid_hf_dataset(root_or_name):
             if os.path.exists(root_or_name):
-                raise ValueError(f"Invalid HuggingFace dataset path '{root_or_name}'. Provide a valid HuggingFace dataset name or set use_local_datasets=True.")
+                raise ValueError(f"Invalid HuggingFace dataset path '{root_or_name}'. Provide a valid HuggingFace dataset name or set use_local_data=True.")
             raise ValueError(f"Invalid HuggingFace dataset name '{root_or_name}'. Provide a valid HuggingFace dataset name.")
 
 
@@ -72,7 +72,7 @@ class DataManager:
         #num_workers = 2**math.floor(math.log2(cpu_count())) if cpu_count() > 1 else 0
         if root_or_name is None:
             root_or_name = get_default_datasets(self.transfer_mode)[f"train_{loader_type}"]
-        if self.use_local_datasets:
+        if self.use_local_data:
             self._validate_local_setting(root_or_name)
             ds = LocalImageDataset(root_or_name, transform=preprocessor)
             # for map-style dataset, use a normal DataLoader initialization

@@ -27,7 +27,7 @@ def test_image_training_pipeline_dict_override(hf_content_path=r"bitmind/MS-COCO
                 "train_style": hf_style_path,
                 "batch_size": 4,
                 "new_size": 256,
-                "use_local_datasets": False,
+                "use_local_data": False,
                 "streaming": True,
             },
             # "bitmind/MS-COCO-unique-256", "train_style": "huggan/wikiart"
@@ -37,7 +37,7 @@ def test_image_training_pipeline_dict_override(hf_content_path=r"bitmind/MS-COCO
                 "temporal_weight": 0.0,
                 "vgg_ckpt": "checkpoints/vgg_normalised.pth"
             },
-            "training_iterations": 2,
+            "train_iter": 2,
             "model_save_interval": 1,
         }
         # Construct a TrainingConfig from our dict

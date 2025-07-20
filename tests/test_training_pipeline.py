@@ -47,7 +47,7 @@ def test_image_training_pipeline(dummy_train_content, dummy_train_style):
                 "train_style": dummy_train_style,
                 "batch_size": 2,
                 "new_size": 256,
-                "use_local_datasets": True,
+                "use_local_data": True,
             },
             loss_cfg={
                 "style_weight": 1.0,
@@ -55,7 +55,7 @@ def test_image_training_pipeline(dummy_train_content, dummy_train_style):
                 "temporal_weight": 0.0,
                 "vgg_ckpt": "checkpoints/vgg_normalised.pth"
             },
-            training_iterations=2,  # keep it small for test
+            train_iter=2,  # keep it small for test
             model_save_interval=1,
         )
         print("Config created by image transfer version: ", config)
@@ -85,7 +85,7 @@ def test_video_training_pipeline(dummy_train_content, dummy_train_style):
                 "train_style": dummy_train_style,
                 "batch_size": 3, # 3 is the highest I can use with the current number of content images available
                 "new_size": 256,
-                "use_local_datasets": True,
+                "use_local_data": True,
             },
             loss_cfg={
                 "style_weight": 1.0,
@@ -93,7 +93,7 @@ def test_video_training_pipeline(dummy_train_content, dummy_train_style):
                 "temporal_weight": 0.5,  # non-zero => triggers fake flow
                 "vgg_ckpt": "checkpoints/vgg_normalised.pth"
             },
-            training_iterations=2,
+            train_iter=2,
             model_save_interval=1,
         )
         trainer = VideoTrainer(config)
@@ -119,7 +119,7 @@ def test_image_training_pipeline_dict_override(dummy_hf_content, dummy_hf_style)
                 "train_style": dummy_hf_style,
                 "batch_size": 4,
                 "new_size": 256,
-                "use_local_datasets": False,
+                "use_local_data": False,
                 "streaming": True,
             },
             # "bitmind/MS-COCO-unique-256", "train_style": "huggan/wikiart"
@@ -129,7 +129,7 @@ def test_image_training_pipeline_dict_override(dummy_hf_content, dummy_hf_style)
                 "temporal_weight": 0.0,
                 "vgg_ckpt": "checkpoints/vgg_normalised.pth"
             },
-            "training_iterations": 1,
+            "train_iter": 1,
             "model_save_interval": 1,
         }
         # Construct a TrainingConfig from our dict
@@ -171,7 +171,7 @@ def test_image_training_pipeline_errors(dummy_hf_content, dummy_hf_style):
                 "train_style": dummy_hf_style,
                 "batch_size": 1,
                 "new_size": 256,
-                "use_local_datasets": True,
+                "use_local_data": True,
                 "streaming": True,
             },
             # "bitmind/MS-COCO-unique-256", "train_style": "huggan/wikiart"
@@ -181,19 +181,19 @@ def test_image_training_pipeline_errors(dummy_hf_content, dummy_hf_style):
                 "temporal_weight": 0.0,
                 "vgg_ckpt": "checkpoints/vgg_normalised.pth"
             },
-            "training_iterations": 2,
+            "train_iter": 2,
             "model_save_interval": 1,
         }
         # expected NotImplementedError from using local datasets with streaming
         error_assertions(config_dict, {"NotImplementedError": NotImplementedError})
-        config_dict["data_cfg"]["use_local_datasets"] = False
+        config_dict["data_cfg"]["use_local_data"] = False
         config_dict["data_cfg"]["streaming"] = False
         # expected out of memory error from not using streaming with Wikiart
         error_assertions(config_dict, {"OSError": OSError})
-        config_dict["data_cfg"]["use_local_datasets"] = True
+        config_dict["data_cfg"]["use_local_data"] = True
         config_dict["data_cfg"]["train_content"] = "fake_path/fake_content"
         # expected FileNotFoundError from using a fake local dataset path
         error_assertions(config_dict, {"FileNotFoundError": FileNotFoundError})
-        # expected ValueError from using a HuggingFace path with use_local_datasets=True
-        config_dict["data_cfg"]["use_local_datasets"] = False
+        # expected ValueError from using a HuggingFace path with use_local_data=True
+        config_dict["data_cfg"]["use_local_data"] = False
         error_assertions(config_dict, {"ValueError": ValueError})
