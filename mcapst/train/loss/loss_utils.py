@@ -65,6 +65,7 @@ class IndexCache(BaseBufferCache):
         rows = patches.reshape(-1, 1).repeat(1, self.win_size).flatten()
         cols = patches.repeat(1, 1, self.win_size).flatten()
         indices  = torch.stack([rows, cols], dim=0)   # (2, num_windows * win_size)
+        indices = indices.expand(2, -1)  # expand to (2, H' * W' * win_size**2) for building the sparse matrix
         return indices
 
 

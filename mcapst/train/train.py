@@ -135,8 +135,8 @@ class ImageTrainer(TrainerBase):
             content_batch = content_batch["img"].to(self.device)
             style_batch = style_batch["img"].to(self.device)
             # forward pass
-            stylized_batch = self.transfer_module.transform(content_batch, [style_batch], alpha_c = alpha_c, alpha_s = alpha_s)
             self.optimizer.zero_grad()
+            stylized_batch = self.transfer_module.transform(content_batch, [style_batch], alpha_c = alpha_c, alpha_s = alpha_s)
             losses = self.loss_manager.compute_losses(content_batch, style_batch, stylized_batch)
             self.mean_losses.update(losses)
             # back-propagation gradient computation and optimization

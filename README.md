@@ -132,7 +132,7 @@ If you would like to download these datasets locally anyway, the following were 
   - [WikiArt](https://www.wikiart.org/)
 
 
-After initial setup, launch training as shown in [[### CLI]] or build the configuration in Python:
+After initial setup, launch training as shown in [the CLI section](#cli) or build the configuration in Python:
 ```python
 from mcapst.train import ImageTrainer, TrainingConfig
 
@@ -189,11 +189,17 @@ The original repo mentions remaining issues that were never completely addressed
    - In the future, I hoped to integrate a small [RAFT](https://docs.pytorch.org/vision/0.12/auto_examples/plot_optical_flow.html) model to predict optical flow
 
 
+### Issues in the New Implementation
+1. Reintegration of Mask-Guided Style Transfer
+   - using on-the-fly segmentation
+   - using provided content/style masks
+   - reintegrate label-mapping utilities
+
+
 ## Acknowledgements
 - **Credit to [linfengWen98](https://github.com/linfengWen98)** for all image assets used in this README. They'll eventually be replaced by real examples after tracking down source images, re-running style transfer inference, and creating new figures.
-- **Credit to the original [CAP-VSTNet](https://github.com/linfengWen98/CAP-VSTNet)** for being the starting point for this new repository. The citation from their original paper is below in [[## Citation]]
+- **Credit to the original [CAP-VSTNet](https://github.com/linfengWen98/CAP-VSTNet)** for being the starting point for this new repository. The citation from their original paper is shown below:
 
-## Citation
 ```
 @inproceedings{wen2023cap,
   title={CAP-VSTNet: Content Affinity Preserved Versatile Style Transfer},

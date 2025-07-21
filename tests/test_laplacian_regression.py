@@ -10,7 +10,7 @@ import torchvision.transforms.v2 as TT
 import torchvision.io as IO
 
 from mcapst.train.loss.matting_laplacian import MattingLaplacianLoss as MLL_new
-from scripts.MattingLaplacian import compute_laplacian as compute_laplacian_np
+from mcapst.scripts.MattingLaplacian import compute_laplacian as compute_laplacian_np, laplacian_loss_grad
 
 # Paths to test images
 IMAGE_PATHS = [
@@ -23,7 +23,7 @@ EPSILON = 1e-6
 WIN_RAD = 1
 RTOL = 1e-2
 ATOL = 1e-4
-IMG_SIZE = [256, 256]
+IMG_SIZE = [512, 512]
 
 torch_preprocessor = TT.Compose([
     TT.Resize(IMG_SIZE, interpolation=TT.InterpolationMode.BILINEAR),
@@ -73,7 +73,7 @@ def test_numpy_vs_old_torch_laplacian(image_pair):
     M_np = compute_laplacian_np(img_np, eps=EPSILON, win_rad=WIN_RAD)
     lap_np = numpy_to_sparse_tensor(M_np)
     # Legacy PyTorch
-    loss_new = MLL_new(eps=EPSILON, win_rad=WIN_RAD, objective="mse")
+    loss_new = MLL_new(eps=EPSILON, win_rad=WIN_RAD)
     lap_new = loss_new.compute_laplacian_response(img_t).cpu()
     #lap_new = lap_new.to_sparse()
     compare_sparse(lap_np, lap_new)
@@ -145,7 +145,6 @@ def test_new_laplacian_response_shape_and_nonnegativity(single_image):
 #     import torchvision.io as IO
 #     import torchvision.transforms.v2 as TT
 #     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
-#     from scripts.MattingLaplacian import compute_laplacian as compute_laplacian_np, laplacian_loss_grad
 
 #     # Hyperparameters
 #     EPSILON = 1e-6
@@ -194,10 +193,11 @@ def test_new_laplacian_response_shape_and_nonnegativity(single_image):
 #     # stylized = stylized.to(device="cuda")
 
 
-#     MLL = MLL_new(eps=EPSILON, win_rad=WIN_RAD, objective="sparse")
+#     MLL = MLL_new(eps=EPSILON, win_rad=WIN_RAD)
 
 #     def loss_regression_test():
 #         loss_new = MLL(content, stylized)
+#         print("PyTorch loss: ", loss_new.item())
 #         lap_np = compute_laplacian_np(content_np, eps=EPSILON, win_rad=WIN_RAD)
 #         lap_np = numpy_to_sparse_tensor(lap_np)
 #         lap_np = ensure_coalesced(lap_np)
@@ -215,8 +215,7 @@ def test_new_laplacian_response_shape_and_nonnegativity(single_image):
 #         lap_np = ensure_coalesced(lap_np)
 #         # new implementation
 #         lap_new = MLL.compute_laplacian_response(content, mask_tensor) #.to(device="cuda")).cpu()
-#         lap_new = MLL.postprocess(lap_new)
-#         lap_new = ensure_coalesced(lap_new)
+#         lap_new = ensure_coalesced(lap_new[0])
 #         # free memory
 #         #del content, stylized, content_np, stylized_np, M_np
 #         # inspecting shapes and stuff before any assertions
@@ -244,6 +243,6 @@ def test_new_laplacian_response_shape_and_nonnegativity(single_image):
 #         laplacian_regression_test(mask_np, mask)
 
 
-#     loss_regression_test()
-#     #laplacian_regression_test()
+#     #loss_regression_test()
+#     laplacian_regression_test()
 #     #masked_regression_test()
