@@ -38,7 +38,7 @@ def test_image_training_pipeline_dict_override(hf_content_path=r"bitmind/MS-COCO
                 "vgg_ckpt": "checkpoints/vgg_normalised.pth"
             },
             "train_iter": 2,
-            "model_save_interval": 1,
+            "ckpt_interval": 1,
         }
         # Construct a TrainingConfig from our dict
         config = TrainingConfig(**config_dict)

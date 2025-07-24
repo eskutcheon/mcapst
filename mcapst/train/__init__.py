@@ -7,7 +7,7 @@ from .train import (
 )
 from .config.config import (
     TrainingConfig,
-    TrainingConfigManager,
+    get_training_config_manager,
     DatasetConfig,
     LossConfig,
 )
@@ -18,7 +18,7 @@ __all__ = [
     "ImageTrainer",
     "VideoTrainer",
     "TrainingConfig",
-    "TrainingConfigManager",
+    "get_training_config_manager",
     "DatasetConfig",
     "LossConfig",
 ]

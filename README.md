@@ -81,23 +81,23 @@ Train on a pair of content and style image datasets:
 python -m mcapst.train \
   --modality image \
   --transfer-mode artistic \
-  --data-cfg.train_content path/to/content \
-  --data-cfg.train_style path/to/style \
+  --data-cfg.train-content path/to/content \
+  --data-cfg.train-style path/to/style \
   --logs-directory logs/run1
 ```
 
 Important flags:
 * `--transfer-mode`: (both modes) Either `photorealistic` or `artistic`
 * `--modality`: (both) Either `image` or `video` - the data modality during inference or the training approach
-* `--use_local_data`: (training) flag specifying whether `train_content` or `train_style` are local paths or not
-* `--data-cfg.train_content`: (training) paths to content data; expects a path to a directory of images or a HF link
-* `--data-cfg.train_style`: (training) path to style image data; expects a path to a directory of images or a HF link
-* `--train_iter`: (training) number of batches to train on (like the original, epochs aren't explicitly used)
-* `--batch_size`: (training) integer specifying batch size during training
-* `--new_size`: (training) integer specifying the longest dimension allowed during training
+* `--use-local-data`: (training) flag specifying whether `train-content` or `train-style` are local paths or not
+* `--data-cfg.train-content`: (training) paths to content data; expects a path to a directory of images, a full Hugging Face URL, or just an HF dataset path
+* `--data-cfg.train-style`: (training) path to style image data; expects the same argument types as `data-cfg.train-content`
+* `--train-iter`: (training) number of batches to train on (like the original, epochs aren't explicitly used)
+* `--batch-size`: (training) integer specifying batch size during training
+* `--new-size`: (training) integer specifying the longest dimension allowed during training
 * `--ckpt-path`: (both) location of a pre-trained CAP-VSTNet checkpoint or path to save a new one
-* `--input-path`: (inference) paths to content data - accepts single file paths, directory paths, or a list of paths
-* `--style_paths`: (inference) paths to style images - accepts the same inputs as `input-path`
+* `--input-paths`: (inference) paths to content data - accepts single file paths, directory paths, or a list of paths
+* `--style-paths`: (inference) paths to style images - accepts the same inputs as `input-paths`
 * `--output-path`: (inference) directory for saving stylized results
 * `--alpha-s` / `--alpha-c`: (inference) blending weights for style and content, respectively
 
@@ -108,7 +108,7 @@ Important flags:
 from mcapst.infer import ImageInferenceOrchestrator, InferenceConfig
 
 cfg = InferenceConfig(modality="image",
-                      input_path="data/content/01.jpg",
+                      input_paths="data/content/01.jpg",
                       output_path="results",
                       transfer_mode="photorealistic")
 runner = ImageInferenceOrchestrator(cfg)
@@ -125,7 +125,7 @@ Download the VGG19 weights ([Google Drive](https://drive.google.com/drive/folder
 
 The original CAP-VSTNet implementation trained model checkpoints (e.g. `photo_image.pt` and `art_video.pt`) using the MS-COCO dataset for content images of both "photorealistic" and "artistic" modes, as well as the style images for "photorealistic" models, and the WikiArt dataset for style images in "artistic" models.
 
-`mcapst` provides a simpler approach to training using remote datasets streamed from Hugging Face via its `datasets` API, but still allows for your own local datasets specified by CLI/config parameters `--train_content` and `--train_style` respectively. The two directories may be the same.
+`mcapst` provides a simpler approach to training using remote datasets streamed from Hugging Face via its `datasets` API, but still allows for your own local datasets specified by CLI/config parameters `--train-content` and `--train-style` respectively. The two directories may be the same.
 
 If you would like to download these datasets locally anyway, the following were used by the original CAP-VSTNet authors:
   - [MS_COCO](http://images.cocodataset.org/zips/train2014.zip)
@@ -137,13 +137,13 @@ After initial setup, launch training as shown in [the CLI section](#cli) or buil
 from mcapst.train import ImageTrainer, TrainingConfig
 
 cfg = TrainingConfig(modality="image",
-                     data_cfg={"train_content": "path/to/content",
-                               "train_style": "path/to/style"})
+                     data_cfg={"train-content": "path/to/content",
+                               "train-style": "path/to/style"})
 trainer = ImageTrainer(cfg)
 trainer.train()
 ```
 
-Training logs are saved inside the directory specified by `logs_directory` in the configuration (default: `logs/`). This is subject to change in the future, as the Tensorboard logging hasn't been updated from the original CAP-VSTNet repo.
+Training logs are saved inside the directory specified by `logs-directory` in the configuration (default: `logs/`). This is subject to change in the future, as the Tensorboard logging hasn't been updated from the original CAP-VSTNet repo.
 
 New trained model checkpoints are saved in the `checkpoints/` directory as `.pt` files with time-stamped filenames by default.
 

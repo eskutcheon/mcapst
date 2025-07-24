@@ -22,7 +22,7 @@ class cWCT(torch.jit.ScriptModule):
         self.reg_method = reg_method    # Choose the regularization method
         self.temperature = temperature  # For softmax-based smoothing
         self.alpha = alpha              # For diagonal loading regularization
-        if reg_method not in ["diagonal_loading", "ridge", "softmax_temperature", "log_space"]:
+        if reg_method not in ["diagonal_load", "ridge", "softmax_temp", "log_space"]:
             raise ValueError(f"Unknown regularization method: {self.reg_method}")
 
     #@staticmethod
@@ -74,12 +74,12 @@ class cWCT(torch.jit.ScriptModule):
     @torch.jit.script_method
     def regularize(self, A: torch.Tensor) -> torch.Tensor:
         """ Apply the selected regularization method. """
-        if self.reg_method == "diagonal_loading":
+        if self.reg_method == "diagonal_load":
             return self.diagonal_loading(A)
         elif self.reg_method == "ridge":
             return self.ridge_regularization(A)
         eigenvalues, eigenvectors = torch.linalg.eigh(A)
-        if self.reg_method == "softmax_temperature":
+        if self.reg_method == "softmax_temp":
             eigenvalues = self.softmax_temperature_regularization(eigenvalues)
         elif self.reg_method == "log_space":
             eigenvalues = self.log_space_regularization(eigenvalues)

@@ -56,7 +56,7 @@ def test_image_training_pipeline(dummy_train_content, dummy_train_style):
                 "vgg_ckpt": "checkpoints/vgg_normalised.pth"
             },
             train_iter=2,  # keep it small for test
-            model_save_interval=1,
+            ckpt_interval=1,
         )
         print("Config created by image transfer version: ", config)
         # We can call stage_training_pipeline if we want to mimic CLI usage:
@@ -94,7 +94,7 @@ def test_video_training_pipeline(dummy_train_content, dummy_train_style):
                 "vgg_ckpt": "checkpoints/vgg_normalised.pth"
             },
             train_iter=2,
-            model_save_interval=1,
+            ckpt_interval=1,
         )
         trainer = VideoTrainer(config)
         trainer.train()
@@ -130,7 +130,7 @@ def test_image_training_pipeline_dict_override(dummy_hf_content, dummy_hf_style)
                 "vgg_ckpt": "checkpoints/vgg_normalised.pth"
             },
             "train_iter": 1,
-            "model_save_interval": 1,
+            "ckpt_interval": 1,
         }
         # Construct a TrainingConfig from our dict
         config = TrainingConfig(**config_dict)
@@ -182,7 +182,7 @@ def test_image_training_pipeline_errors(dummy_hf_content, dummy_hf_style):
                 "vgg_ckpt": "checkpoints/vgg_normalised.pth"
             },
             "train_iter": 2,
-            "model_save_interval": 1,
+            "ckpt_interval": 1,
         }
         # expected NotImplementedError from using local datasets with streaming
         error_assertions(config_dict, {"NotImplementedError": NotImplementedError})

@@ -8,7 +8,9 @@ from torch.utils.data import DataLoader
 import torchvision.transforms.v2 as TT
 # local imports
 # TODO: add a factory method for HuggingFace datasets
-from .datasets import LocalImageDataset, HFImageDataset, HFStreamingIterable, test_if_valid_hf_dataset
+from .datasets import LocalImageDataset, HFImageDataset, HFStreamingIterable
+# TODO: REMOVE once Pydantic is fully integrated
+from mcapst.core.utils.utils import test_if_valid_hf_dataset
 
 
 

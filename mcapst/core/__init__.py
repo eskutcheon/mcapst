@@ -20,7 +20,7 @@ from .utils.img_utils import (
 )
 from .utils.video_processor import VideoProcessor
 from .utils.label_remapping import SegLabelMapper
-from .utils.config_manager import BaseConfigManager
+from .utils.config_utils import ConfigManager, BaseConfigModel
 
 __all__ = [
     "CAPVSTNet",
@@ -37,7 +37,8 @@ __all__ = [
     "MaskedVideoStylizer",
     "VideoProcessor",
     "SegLabelMapper",
-    "BaseConfigManager",
+    "ConfigManager",
+    "BaseConfigModel",
     "ensure_file_list_format",
     "ensure_list_format",
     "ensure_batch_tensor",

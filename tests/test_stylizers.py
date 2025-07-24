@@ -129,14 +129,12 @@ def test_major_refactor_inference():
     from mcapst.infer import stage_inference_pipeline
     config_path = "temp_inference.yaml"
     config = {
-        "run_name": "test_vid_infer1",
-        "transfer_mode": "photorealistic",
-        "modality": "video",  # "video",
-        # TODO: update to always accept a list/set/sequence of paths rather than a string
-            # or not because I just set it up for directory inputs
-        "input_path": r"data/content",
-        "style_paths": [r"data/style/05.jpg"],
-        "output_path": r"results/test_vid_infer1",
+        "run_name": "test_img_refactored1",
+        "transfer_mode": "artistic",
+        "modality": "image",
+        "input_paths": r"data/content",
+        "style_paths": [r"data/style/04.jpg"],
+        "output_path": r"results/test_img_refactored1",
         "alpha_c": 0.0,
         "alpha_s": 0.9,
     }

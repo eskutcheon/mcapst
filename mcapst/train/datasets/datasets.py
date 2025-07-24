@@ -155,25 +155,6 @@ class HFStreamingIterable(IterableDataset):
 
 
 
-
-def test_if_valid_hf_dataset(name: str) -> bool:
-    """ checks if the provided dataset name is valid and accessible on HuggingFace """
-    from urllib.request import urlopen
-    from urllib.error import HTTPError
-    try:
-        # NOTE: should maybe be f"https://huggingface.co/datasets/{name}/blob/main/README.md"
-        url = f"https://huggingface.co/datasets/{name}/resolve/main/README.md"
-        response = urlopen(url)
-        # return whether the HTTP 200 OK status code was returned by the server
-        return response.status == 200
-    except HTTPError as e:
-        print(f"Error accessing dataset '{name}': {e}")
-        print(f"Ensure this is a valid HuggingFace dataset and appropriate permissions are enabled.")
-        return False
-
-
-
-
     # TODO: add a new dataset for other remote datasets, e.g. from Kaggle, cloud storage, or databases
 
     # TO ADD LATER::

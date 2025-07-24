@@ -7,7 +7,7 @@ from torchvision.io import read_image, write_jpeg, ImageReadMode
 from torchvision.transforms.v2 import Compose, ToDtype, Lambda, Resize
 # local imports
 #from .dispatcher import StyleTransferDispatcher
-from mcapst.infer.config.config import InferenceConfig, InferenceConfigManager
+from mcapst.infer.config.config import InferenceConfig, get_inference_config_manager
 from mcapst.core.utils.utils import ensure_file_list_format
 
 
@@ -82,7 +82,7 @@ class BaseInferenceOrchestrator(ABC):
     def _log_inference_details(self):
         """ Logs inference-related details. """
         print(f"Inference Mode: {self.config.transfer_mode}")
-        print(f"Input Path: {self.config.input_path}")
+        print(f"Input Path: {self.config.input_paths}")
         print(f"Output Path: {self.config.output_path}")
         print(f"Using Segmentation: {self.config.use_segmentation}")
 
@@ -120,12 +120,12 @@ class ImageInferenceOrchestrator(BaseInferenceOrchestrator):
 
     def _parse_run_inputs(self, *args, **kwargs) -> Dict[str, Any]:
         """ merge user-provided arguments with config-based defaults, returning final arguments for run_inference """
-        # if user passed `input_files` explicitly, use it; otherwise fallback to config.input_path
-        input_files = kwargs.get("input_files", self.config.input_path)
-        input_files = ensure_file_list_format(input_files)
+        # if user passed `input_files` explicitly, use it; otherwise fallback to config.input_paths
+        input_files = kwargs.get("input_files", self.config.input_paths)
+        #input_files = ensure_file_list_format(input_files) #? NOTE: replaced with PathList (but may need to account for other entry points later)
         # handle remaining arguments in the same way
         style_files = kwargs.get("style_paths", [os.path.realpath(r"data/style/01.jpg")])
-        style_files = ensure_file_list_format(style_files)
+        #style_files = ensure_file_list_format(style_files)
         alpha_c = kwargs.get("alpha_c", self.config.alpha_c)
         alpha_s = kwargs.get("alpha_s", self.config.alpha_s)
         # for user to specify whether to save output
@@ -144,7 +144,7 @@ class ImageInferenceOrchestrator(BaseInferenceOrchestrator):
         }
 
     def run_inference(self, *args, **kwargs) -> List[torch.Tensor]:
-        """ reads images from self.config.input_path, applies style transfer, and saves to self.config.output_path """
+        """ reads images from self.config.input_paths, applies style transfer, and saves to self.config.output_path """
         parsed = self._parse_run_inputs(*args, **kwargs)
         # NOTE: while I could return this as a single batch tensor, it would be way less flexible for variable-sized images
         stylized_images = []
@@ -194,11 +194,11 @@ class VideoInferenceOrchestrator(BaseInferenceOrchestrator):
         )
 
     def _parse_run_inputs(self, *args, **kwargs) -> Dict[str, Any]:
-        # if user passed `input_files` explicitly, use it; otherwise fallback to config.input_path
-        video_list = kwargs.get("video_list", self.config.input_path)
-        video_list = ensure_file_list_format(video_list)
+        # if user passed `input_files` explicitly, use it; otherwise fallback to config.input_paths
+        video_list = kwargs.get("video_list", self.config.input_paths)
+        # video_list = ensure_file_list_format(video_list) # replaced with PathList (but may need to account for other entry points later)
         style_files = kwargs.get("style_paths", [os.path.realpath(r"data/style/01.jpg")])
-        style_files = ensure_file_list_format(style_files)
+        #style_files = ensure_file_list_format(style_files)
         alpha_c = kwargs.get("alpha_c", self.config.alpha_c)
         alpha_s = kwargs.get("alpha_s", self.config.alpha_s)
         save_output = kwargs.get("save_output", True)
@@ -224,7 +224,8 @@ class VideoInferenceOrchestrator(BaseInferenceOrchestrator):
             # if BaseVideoStylizer returns the frames, we store them in stylized_results
             # TODO: need to refactor how these stylizers are loaded to allow users to pass in custom postprocessors and other arguments
             stylized_frames = self.stylizer.transform(
-                sample=video_path,
+                # TODO: update this later - have to convert to string first since it'll throw an error if it's a Path object for now
+                sample=str(video_path),
                 # TODO: add a sampler to select style images from a default directory defined in the config
                 style_paths=parsed["style_paths"],
                 alpha_c = parsed["alpha_c"],
@@ -243,8 +244,8 @@ def stage_inference_pipeline(config_path: Optional[str] = None):
         ```python -m mcapst.pipelines.infer --mode inference --config_path path/to/infer_config.yaml```
     """
     # uses a InferenceConfigManager to parse user config and pass an object directly
-    config_manager = InferenceConfigManager(config_path=config_path)
-    config: InferenceConfig = config_manager.get_config()
+    config_manager = get_inference_config_manager(config_path=config_path)
+    config: InferenceConfig = config_manager.config_model
     # routes to the correct inference class based on modality (image or video)
     if config.modality == "image":
         runner = ImageInferenceOrchestrator(config)

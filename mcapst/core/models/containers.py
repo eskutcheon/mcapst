@@ -123,7 +123,6 @@ class FeatureContainer(object):
         # ? NOTE: may end up moving this as well to enfore mask consistency with the feature tensors
         if mask is not None:
             mask = iterable_to_tensor(mask, max_size, is_mask=True)
-        # TODO: add a method to ensure feat and mask are on the same device, same shape (batch or spatial dims), same type (ndarray vs Tensor)
         self.mask: torch.Tensor | None = mask
         self.use_double: bool = use_double
 

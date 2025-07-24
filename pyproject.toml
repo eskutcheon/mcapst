@@ -26,11 +26,11 @@ keywords = [
     "computer-vision",
 ]
 dependencies = [
+    "pydantic>=2.8.1",
     "PyYAML>=6.0.2",
     "dataclasses>=0.6",
     "pillow>=11.1.0",
     "numpy>=2.2.1",
-    #"kornia>=0.8.0", # hoping to remove this from the general utils later and make it an inference-only dependency
     "pytest>=8.3.4",
     "tqdm>=4.67.1",
     "gdown>=5.2.0"
@@ -46,6 +46,7 @@ train = [
 ]
 infer = [
     "av==15.0.0"
+    #"kornia>=0.8.0",
 ]
 
 

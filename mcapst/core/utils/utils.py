@@ -141,8 +141,25 @@ def validate_path_arg(paths: Union[str, List[str]], arg_name: str, supported_ext
     return paths
 
 
+def test_if_valid_hf_dataset(name: str) -> bool:
+    """ checks if the provided dataset name is valid and accessible on HuggingFace """
+    from urllib.request import urlopen
+    from urllib.error import HTTPError
+    # allow both full URLs or just the dataset path/name
+        #? NOTE: previously used f"https://huggingface.co/datasets/{name}/blob/main/README.md" in case it matters later
+    url = name if name.startswith(r"https://huggingface.co/datasets") else f"https://huggingface.co/datasets/{name}"
+    try:
+        response = urlopen(url)
+        # return whether the HTTP 200 OK status code was returned by the server
+        return response.status == 200
+    except HTTPError as e:
+        print(f"Error accessing dataset '{name}': {e}")
+        print(f"Ensure this is a valid HuggingFace dataset and appropriate permissions are enabled.")
+        return False
 
-# originally written and applied within another repo to avoid GPU memory issues for certain operations - may be useful later
+
+#& CURRENTLY UNUSED - might be useful later
+# originally written and applied within another repo to avoid GPU memory issues for certain operations
 def cpu_wrapper(compute_on_cpu):
     def decorator(func):
         def wrapper(tensor, *args, **kwargs):
@@ -171,9 +188,9 @@ def target_equals_benchmark(target: torch.Tensor, filename: str, exact = True, r
             target (torch.Tensor): Extracted indices from PyTorch
             filename (str): Path to saved NumPy-based `source.pt`
     """
-    # TODO: should probably separate loading the source tensor and comparing into separate functions
+    # TODO: should probably separate loading the source tensor and comparing into separate functions (and check loaded type)
     # load the saved indices
-    source: torch.Tensor = torch.load(filename, weights_only=True) # TODO: add check for loaded type
+    source: torch.Tensor = torch.load(filename, weights_only=True)
     # ensure shapes match
     if source.ndim != target.ndim or source.shape != target.shape:
         print(f"Shape Mismatch: {names[0]} {source.shape}, {names[1]} {target.shape}")

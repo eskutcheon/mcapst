@@ -3,8 +3,7 @@ import sys
 import yaml
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 # from mcapst.datasets.datasets import HFImageDataset
-from mcapst.train import ImageTrainer, VideoTrainer, TrainingConfigManager
-#from mcapst.train.config.config import TrainingConfigManager
+from mcapst.train import ImageTrainer, VideoTrainer, get_training_config_manager
 
 def main():
     # Create a temporary config file
@@ -20,9 +19,7 @@ def main():
             #"train_style": "data/train_style",
             "batch_size": 4,
             "new_size": 512,
-            #"crop_size": 256,
             "use_local_data": False,
-            # "use_segmentation": False, # not implemented with the Laplacian yet
         },
         "loss_cfg": {
             "style_weight": 1.0,
@@ -35,16 +32,16 @@ def main():
         "train_iter": 20,
         "resume": False,
         "logs_directory": r"logs",
-        "model_save_interval": 100,
+        "ckpt_interval": 0,
         "log_interval": 5,  # log every 5 iterations
         "grad_max_norm": 5.0,
     }
     with open(config_path, "w") as file:
         yaml.dump(config, file)
     # load ConfigManager and initialize training
-    config_manager = TrainingConfigManager(config_path=config_path)
-    trainer = ImageTrainer(config_manager.get_config())
-    #trainer = VideoTrainer(config_manager.get_config())
+    config_manager = get_training_config_manager(config_path=config_path)
+    trainer = ImageTrainer(config_manager.config_model)
+    #trainer = VideoTrainer(config_manager.config_model)
     trainer.train()
     # clean up
     os.remove(config_path)

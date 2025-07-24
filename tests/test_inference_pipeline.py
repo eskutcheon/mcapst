@@ -24,7 +24,7 @@ def test_image_inference_pipeline_cli(sample_image_path):
     with tempfile.TemporaryDirectory() as tmpdir:
         config = InferenceConfig(
             modality="image",
-            input_path=sample_image_path,
+            input_paths=sample_image_path,
             output_path=tmpdir,
             alpha_s=0.7,
             transfer_mode="photorealistic",  # or "artistic"
@@ -45,7 +45,7 @@ def test_video_inference_pipeline_cli(sample_video_path):
     with tempfile.TemporaryDirectory() as tmpdir:
         config = InferenceConfig(
             modality="video",
-            input_path=sample_video_path,
+            input_paths=sample_video_path,
             output_path=tmpdir,
             alpha_s=0.5,
             transfer_mode="artistic",
@@ -64,7 +64,7 @@ def test_stage_inference_pipeline_dict_override(sample_image_path):
         # can feed a dict via InferenceConfig's constructor:
         config_dict = {
             "modality": "image",
-            "input_path": sample_image_path,
+            "input_paths": sample_image_path,
             "output_path": tmpdir,
             "transfer_mode": "artistic",
             "alpha_s": 0.9
