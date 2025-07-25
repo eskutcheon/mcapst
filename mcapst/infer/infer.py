@@ -4,11 +4,11 @@ from abc import ABC, abstractmethod
 import torch
 from typing import Dict, Optional, Union, List, Any
 from torchvision.io import read_image, write_jpeg, ImageReadMode
-from torchvision.transforms.v2 import Compose, ToDtype, Lambda, Resize
+from torchvision.transforms.v2 import Compose, ToDtype, Lambda #, Resize
 # local imports
 #from .dispatcher import StyleTransferDispatcher
 from mcapst.infer.config.config import InferenceConfig, get_inference_config_manager
-from mcapst.core.utils.utils import ensure_file_list_format
+# from mcapst.core.utils.utils import ensure_file_list_format
 
 
 
@@ -239,13 +239,14 @@ class VideoInferenceOrchestrator(BaseInferenceOrchestrator):
         return stylized_results # may be list of tensors or empty list if save_output=True
 
 
-def stage_inference_pipeline(config_path: Optional[str] = None):
+def stage_inference_pipeline(config_path: Optional[str] = None, config: Optional[InferenceConfig] = None) -> List[torch.Tensor]:
     """ Top-level convenience function used when calling from CLI or programmatically as
         ```python -m mcapst.pipelines.infer --mode inference --config_path path/to/infer_config.yaml```
     """
-    # uses a InferenceConfigManager to parse user config and pass an object directly
-    config_manager = get_inference_config_manager(config_path=config_path)
-    config: InferenceConfig = config_manager.config_model
+    if config is None:
+        # uses a InferenceConfigManager to parse user config and pass an object directly
+        config_manager = get_inference_config_manager(config_path=config_path)
+        config: InferenceConfig = config_manager.config_model
     # routes to the correct inference class based on modality (image or video)
     if config.modality == "image":
         runner = ImageInferenceOrchestrator(config)

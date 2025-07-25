@@ -34,7 +34,7 @@ class DataManager:
         self.buffer_size = getattr(config, "shuffle_buffer", 0)
         self.batch_size = getattr(config, "batch_size", 1)
         self.use_local_data = getattr(config, "use_local_data", False)
-            # use self.new_size for the resize transform
+        # use config.new_size for the resize transform or default to 256
         resize_dim = getattr(config, "new_size", 256)
         preprocessor = TT.Compose([
             TT.Resize((resize_dim, resize_dim)),
@@ -63,12 +63,13 @@ class DataManager:
                 raise ValueError(f"Invalid HuggingFace dataset path '{root_or_name}'. Provide a valid HuggingFace dataset name or set use_local_data=True.")
             raise ValueError(f"Invalid HuggingFace dataset name '{root_or_name}'. Provide a valid HuggingFace dataset name.")
 
-
+    # TODO: maybe make the dataset type a pydantic model since most of the conditional logic here is taken care of by the config
+        # could access LocalImageDataset, HFImageDataset, or HFStreamingIterable from a registry or factory method and construct args to a common dataloader instantiation
     def _build_loader(self,
                       root_or_name: str,
                       loader_type: Optional[Literal["content", "style"]] = "content",
                       preprocessor: Optional[Callable] = None) -> DataLoader:
-        # setting num_workers based on CPU count:
+        #! setting num_workers based on CPU count:
         #! FIXME: won't work with pickling since the datasets have generators, but it'd be a lot slower without it - might just need to write a custom sampler
             # TODO: maybe add the streaming piped dataloader I wrote for the feature space analysis project
         #num_workers = 2**math.floor(math.log2(cpu_count())) if cpu_count() > 1 else 0

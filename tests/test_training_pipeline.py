@@ -64,7 +64,7 @@ def test_image_training_pipeline(dummy_train_content, dummy_train_style):
         trainer = ImageTrainer(config)
         trainer.train()
         # Check that a checkpoint file was produced
-        ckpt_path = trainer.config.ckpt_path
+        ckpt_path = trainer.config.ckpt_dest
         assert os.path.isfile(ckpt_path), f"Expected a checkpoint at {ckpt_path}"
 
 
@@ -99,7 +99,7 @@ def test_video_training_pipeline(dummy_train_content, dummy_train_style):
         trainer = VideoTrainer(config)
         trainer.train()
         # Check that a checkpoint file was produced
-        ckpt_path = trainer.config.ckpt_path
+        ckpt_path = trainer.config.ckpt_dest
         assert os.path.isfile(ckpt_path), "Expected checkpoint for video trainer."
 
 
@@ -138,7 +138,7 @@ def test_image_training_pipeline_dict_override(dummy_hf_content, dummy_hf_style)
         # Now run the pipeline. This is analogous to a CLI call with a config file.
         trainer = ImageTrainer(config)
         trainer.train()
-        ckpt_path = trainer.config.ckpt_path
+        ckpt_path = trainer.config.ckpt_dest
         assert os.path.isfile(ckpt_path), "No checkpoint file found after training."
 
 
@@ -151,7 +151,7 @@ def error_assertions(config_dict, error_type: Dict[str, Type[Exception]]):
         # Now run the pipeline. This is analogous to a CLI call with a config file.
         trainer = ImageTrainer(config)
         trainer.train()
-        ckpt_path = trainer.config.ckpt_path
+        ckpt_path = trainer.config.ckpt_dest
         assert os.path.isfile(ckpt_path), "No checkpoint file found after training."
     except Exception as e:
         for key, val in error_type.items():

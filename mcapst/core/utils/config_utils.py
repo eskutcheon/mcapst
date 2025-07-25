@@ -1,8 +1,9 @@
 
+import sys
 import argparse
 import yaml
 # from dataclasses import is_dataclass, asdict, fields
-from typing import Dict, Literal, Any, Optional, Union, List, Type, get_origin, get_args
+from typing import Dict, Literal, Any, Optional, Union, List, Type, Set, get_origin, get_args
 from pathlib import Path
 from pydantic import (
     BaseModel, RootModel, Field, ConfigDict, model_validator, field_validator,
@@ -11,7 +12,6 @@ from pydantic import (
 
 
 class PathList(RootModel[List[Path]]):
-
     @model_validator(mode="before")
     def coerce(cls, v: Union[FilePath, DirectoryPath, List[FilePath], Path, str]) -> List[Path]:
         if isinstance(v, (str, Path)):
@@ -38,13 +38,15 @@ class PathList(RootModel[List[Path]]):
         return f"PathList({self.root})"
 
 
+# defining the following constant just for easily referencing shared fields across config models
+BASE_FIELDS = ("run_name", "transfer_mode", "modality", "reg_method")
 
 class BaseConfigModel(BaseModel):
     """ Base class of type pydantic.BaseModel for all configuration models with common fields and methods
         - easily extensible for future use cases
     """
     #& still not used anywhere, but it could be used to make subdirectories later
-    run_name: Optional[str] = Field(None, description="Name of the run, used for logging and checkpoints.")
+    run_name: Optional[str] = Field(None, description="Name of the run, used for naming output logs and directories.")
     # pydantic now implicitly handles the validation of these string literals
     transfer_mode: Literal["photo", "art", "photorealistic", "artistic"] = Field(
         "photo",
@@ -103,32 +105,23 @@ class ConfigManager:
         # 1. load YAML if given or create an empty dict
         yaml_data = yaml.safe_load(open(config_path)) if config_path else {}
         # 2. build parser from the *class* fields
-        parser = self._build_parser(config_model, desc=description)
+        parser = self.build_parser(config_model, desc=description)
         # 3. parse CLI flags (will exit on --help)
         args, _ = parser.parse_known_args()
         flat_overrides = {k: v for k, v in vars(args).items() if v is not None}
         # 4. nest overrides by splitting on '.'
-        nested_overrides = self._nest_overrides(flat_overrides)
+        nested_overrides = self.nest_overrides(flat_overrides)
         # 5. merge YAML + CLI, then final Pydantic validation
         combined = _deep_merge(yaml_data, nested_overrides)
         self.config = config_model(**combined)
 
-    def _build_parser(self, config_model: Type[BaseModel], desc: str = "") -> argparse.ArgumentParser:
-        """ Build an argument parser from the Pydantic model fields """
-        parser = argparse.ArgumentParser(description=desc)
-        # TODO: might want to call get_default to set it in the parser and show in the help messages
-        for full_name, field_info in self._iterate_model_fields(config_model):
-            # build flag with dotted nested names and hyphens replacing underscores
-            parts = full_name.split('.')
-            flag = "--" + ".".join(p.replace('_', '-') for p in parts)
-            # determine type/action/nargs
-            arg_type = field_info.annotation #.outer_type_
-            arg_params = self.build_arg_params(arg_type, full_name, field_info)
-            #print("Adding argument:", flag, "with arg_type:", arg_type, "and params:", arg_params)
-            parser.add_argument(flag, **arg_params)
-        return parser
+    @property
+    def config_model(self) -> BaseModel:
+        """ Return the fully validated Pydantic model instance """
+        return self.config
 
-    def _nest_overrides(self, flat_overrides: Dict[str, Any]) -> Dict[str, Any]:
+    @staticmethod
+    def nest_overrides(flat_overrides: Dict[str, Any]) -> Dict[str, Any]:
         """ Convert flat overrides with '.' delimiters to nested dicts """
         nested_overrides: Dict[str, Any] = {}
         for dest, value in flat_overrides.items():
@@ -139,12 +132,43 @@ class ConfigManager:
             cur[parts[-1]] = value
         return nested_overrides
 
+
+    # TODO: add another version of this function that prioritizes building usage/help messages without flattening and using `add_argument_group`
+    @staticmethod
+    def build_parser(config_model: Type[BaseModel], desc: str = "", parser: Optional[argparse.ArgumentParser] = None) -> argparse.ArgumentParser:
+        """ Build an argument parser from the Pydantic model fields """
+        if parser is None:
+            parser = argparse.ArgumentParser(description=desc)
+        # TODO: might want to call get_default to set it in the parser and show in the help messages
+        for full_name, field_info in ConfigManager.iterate_model_fields(config_model):
+            # build flag with dotted nested names and hyphens replacing underscores
+            parts = full_name.split('.')
+            flag = "--" + ".".join(p.replace('_', '-') for p in parts)
+            # determine type/action/nargs
+            arg_type = field_info.annotation #.outer_type_
+            arg_params = ConfigManager.build_arg_params(arg_type, full_name, field_info)
+            #print("Adding argument:", flag, "with arg_type:", arg_type, "and params:", arg_params)
+            parser.add_argument(flag, **arg_params)
+        return parser
+
     @staticmethod
     def build_arg_params(arg_type: Any, arg_name: str, field_info: Any) -> Dict[str, Any]:
-        """ Helper to construct argument parameters for argparse based on Pydantic field annotations """
+        """ Helper to construct argument parameters for argparse based on Pydantic field annotations
+            Includes
+                dest: dotted field name
+                default: the Pydantic default
+                help: field description + "[default: ...]"
+                plus type/action/nargs as needed
+        """
         origin = get_origin(arg_type)
         args_ = get_args(arg_type)
-        arg_params: Dict[str, Any] = {'dest': arg_name, 'default': None, 'help': field_info.description or ""}
+        # pull the Pydantic default, whether a literal or via default_factory
+        try:
+            default = field_info.get_default()
+        except Exception:
+            default = None
+        help_text = field_info.description or ""
+        arg_params: Dict[str, Any] = {'dest': arg_name, 'default': default, 'help': help_text}
         if arg_type is bool or (origin is Literal and all(isinstance(a, bool) for a in args_)):
             arg_params['action'] = 'store_true'
             arg_params.pop('type', None) # no explicit type needed
@@ -161,7 +185,7 @@ class ConfigManager:
         return arg_params
 
     @staticmethod
-    def _iterate_model_fields(
+    def iterate_model_fields(
         model: Union[Type[BaseModel], BaseModel],
         prefix: str = "",
     ) -> List[Any]:
@@ -191,12 +215,63 @@ class ConfigManager:
                         break
             if nested is not None:
                 # recurse into nested model
-                items += ConfigManager._iterate_model_fields(nested, prefix=full + '.')
+                items += ConfigManager.iterate_model_fields(nested, prefix=full + '.')
             else:
                 items.append((full, field_info))
         return items
 
-    @property
-    def config_model(self) -> BaseModel:
-        """ Return the fully validated Pydantic model instance """
-        return self.config
+
+
+def parser_from_cfg_factory(
+    config_model: Type[BaseModel],
+    desc: str = "",
+    argv = None,
+    parser: Optional[argparse.ArgumentParser] = None
+) -> argparse.ArgumentParser:
+    """ small (probably temporary) factory function to build a parser from a Pydantic model for CLI output """
+    if parser is None:
+        parser = argparse.ArgumentParser(description=desc)
+    # add a named group for all InferenceConfig fields
+    group_desc = "Inference options" if "InferenceConfig" in config_model.__name__ else "Training options"
+    group = parser.add_argument_group(group_desc)
+    group = ConfigManager.build_parser(config_model, desc=desc, parser=group)
+    args = parser.parse_args(argv)
+    # rebuild sys.argv so ConfigManager only sees its flags (strip off `--config-path` and its value)
+    rem = []
+    skip = False
+    for tok in sys.argv[1:]:
+        if skip:
+            skip = False
+            continue
+        if tok.startswith("--config-path"):
+            skip = "=" not in tok  # if `--config-path=foo.yml` no skip
+            continue
+        rem.append(tok)
+    sys.argv = [sys.argv[0]] + rem
+    return args
+
+
+def attach_to_parser(
+    parser_group: argparse._ArgumentGroup,
+    config_model: Type[BaseModel],
+    *,
+    prefix: str = "--",
+    skip_fields: Optional[Set[str]] = None,
+):
+    """ Attach a --flag per leaf field of `config_model` into `parser`.
+        Args:
+            prefix: optionally prepend to each flag (unused here)
+            skip_fields: full_name(s) to omit (e.g. base fields)
+    """
+    if skip_fields is None:
+        skip_fields = set()
+    for full_name, field_info in ConfigManager.iterate_model_fields(config_model):
+        # if this field (or any sub-field) is in skip_fields, skip it
+        if any(full_name == f or full_name.startswith(f + ".") for f in skip_fields):
+            continue
+        # build flag with dotted nested names and hyphens replacing underscores
+        arg_type = field_info.annotation
+        parts = full_name.split('.')
+        flag = prefix + ".".join(p.replace('_', '-') for p in parts)
+        params = ConfigManager.build_arg_params(arg_type, full_name, field_info)
+        parser_group.add_argument(flag, **params)

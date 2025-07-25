@@ -5,10 +5,9 @@ import torch
 # TODO: extract to a new logging file later
 from torch.utils.tensorboard import SummaryWriter
 # local imports
-from mcapst.core.models.VGG import VGG19
 from mcapst.train.datasets.orchestrator import DataManager
-from mcapst.train.config.config import TrainingConfig, get_training_config_manager
 from mcapst.train.loss.manager import LossManager
+from mcapst.train.config.config import TrainingConfig, get_training_config_manager
 from mcapst.train.loss.loss_utils import RunningMeanLoss
 
 
@@ -30,8 +29,7 @@ class TrainerBase:
         self.total_iterations = self.config.train_iter # + self.config.fine_tuning_iterations
         self.writer = SummaryWriter(log_dir=self.config.logs_directory)
         self.data_manager = DataManager(self.config.transfer_mode, self.config.data_cfg)
-        style_encoder: Callable = VGG19(self.config.loss_cfg.vgg_ckpt).to(device=self.device)
-        self.loss_manager = LossManager(self.config.loss_cfg, style_encoder=style_encoder)
+        self.loss_manager = LossManager(self.config.loss_cfg)
         # Let child classes define self.model, switch to using the stylizer classes like with BaseImageStylizer, etc.
             # would probably need to immediately save a model to a checkpoint after initialization to pass as a checkpoint to the stylizer class
         self.model = None
@@ -64,9 +62,9 @@ class TrainerBase:
 
     def _resume_checkpoint(self):
         # TODO: remove after being handled by Pydantic validation (unless this is used as an API checkpoint separate from the config)
-        if not os.path.isfile(self.config.ckpt_path):
-            raise FileNotFoundError(f"Cannot resume: checkpoint path '{self.config.ckpt_path}' not found.")
-        checkpoint = torch.load(self.config.ckpt_path, weights_only=True, map_location=self.device)
+        if not os.path.isfile(self.config.ckpt_dest):
+            raise FileNotFoundError(f"Cannot resume: checkpoint path '{self.config.ckpt_dest}' not found.")
+        checkpoint = torch.load(self.config.ckpt_dest, weights_only=True, map_location=self.device)
         self.model.load_state_dict(checkpoint["state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer"])
         self.current_iter = int(checkpoint["iteration"].item())
@@ -79,12 +77,12 @@ class TrainerBase:
 
     def _save_checkpoint(self):
         if self.config.ckpt_interval > 0 and self.current_iter % self.config.ckpt_interval == 0:
-            os.makedirs(os.path.dirname(self.config.ckpt_path), exist_ok=True)
+            os.makedirs(os.path.dirname(self.config.ckpt_dest), exist_ok=True)
             torch.save({
                 "state_dict": self.model.state_dict(),
                 "optimizer": self.optimizer.state_dict(),
                 "iteration": torch.tensor([self.current_iter], dtype=torch.int32)
-            }, self.config.ckpt_path)
+            }, self.config.ckpt_dest)
 
     @staticmethod
     def get_loss_log_string(losses: Dict[str, float]) -> str:
@@ -93,6 +91,7 @@ class TrainerBase:
         loss_str = ' | '.join([f'{k}: {v:.4}' for k, v in nonzero_losses.items()])
         prefix = f"[ Mean Losses ({loss_str}) ]"
         # pad to rough character length, then append Progress
+        # TODO: make this more robust to different loss names and lengths
         padding = max(int(22 * len(nonzero_losses)), len(prefix) + 10)  # adjust padding based on number of losses
         padded = prefix.ljust(padding)
         return f"{padded} Progress"
@@ -113,7 +112,7 @@ class ImageTrainer(TrainerBase):
         # TODO: if I keep using stylizer classes in this way, I'll have to add some staging for choosing this or the MaskedImageStylizer class
         self.transfer_module = BaseImageStylizer(
             mode=self.config.transfer_mode,
-            ckpt=self.config.ckpt_path,
+            ckpt=self.config.ckpt_dest,
             max_size=self.config.data_cfg.new_size,
             # TODO: add support for post-processors passed to stylizer classes here
             train_mode=True
@@ -171,7 +170,7 @@ class VideoTrainer(TrainerBase):
         from mcapst.core.stylizers.image_stylizers import BaseImageStylizer
         self.transfer_module = BaseImageStylizer(
             mode=self.config.transfer_mode,
-            ckpt=self.config.ckpt_path,
+            ckpt=self.config.ckpt_dest,
             max_size=self.config.data_cfg.new_size,
             reg_method=self.config.reg_method,  # e.g. 'ridge' for cWCT
             train_mode=True
@@ -180,7 +179,7 @@ class VideoTrainer(TrainerBase):
         # from mcapst.data.managers import BaseVideoStylizer
         # self.transfer_module = BaseVideoStylizer(
         #     mode=self.config.transfer_mode,
-        #     ckpt=self.config.ckpt_path,
+        #     ckpt=self.config.ckpt_dest,
         #     max_size=self.config.data_cfg.new_size,
         #     reg_method="ridge",
         #     train_mode=True)
@@ -221,12 +220,13 @@ class VideoTrainer(TrainerBase):
 
 
 
-def stage_training_pipeline(config_path: Optional[str] = None):
+def stage_training_pipeline(config_path: Optional[str] = None, config: Optional[TrainingConfig] = None):
     """ Top-level convenience function for launching training from CLI or programmatic usage:
         ```python -m mcapst.pipelines.train --mode training --config_path path/to/train_config.yaml```
     """
-    config_manager = get_training_config_manager(config_path=config_path)
-    config: TrainingConfig = config_manager.config_model
+    if config is None:
+        config_manager = get_training_config_manager(config_path=config_path)
+        config: TrainingConfig = config_manager.config_model
     if config.modality == "image":
         trainer = ImageTrainer(config)
     elif config.modality == "video":

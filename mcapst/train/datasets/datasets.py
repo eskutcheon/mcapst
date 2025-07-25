@@ -18,7 +18,9 @@ class BaseImageDataset(Dataset):
     """ Base class for both HuggingFace and local image datasets that includes the optional Matting Laplacian computation """
     def __init__(self, transform: Optional[Callable] = None):
         super().__init__()
+        #! remove hardcoding
         DEFAULT_RESIZE_DIM = 256
+        # rename to transforms or preprocessor
         self.transform = transform if transform else TT.Compose([
             # TT.ToPureTensor(),
             TT.Lambda(lambda x: TT.functional.pil_to_tensor(x) if isinstance(x, Image) else x),
@@ -45,6 +47,7 @@ class LocalImageDataset(BaseImageDataset):
         self.files: List[str] = []
         pattern = "**/*" if recursive else "*"
         # Gather all valid image files
+        # TODO: replace glob and os with pathlib.Path.glob for cutting down imports
         for f in glob(os.path.join(root, pattern), recursive=recursive):
             ext = os.path.splitext(f)[1].lower()
             if ext in ALLOWED_EXTS and os.path.isfile(f):
@@ -68,6 +71,7 @@ class HFImageDataset(BaseImageDataset):
     def __init__(self, dataset_name, split="train", transform: Optional[Callable] = None):
         super().__init__(transform)
         # TODO: explore more of the options in datasets.load_dataset() to optimize loading
+        # TODO: pass split and any newer options from the trainer calls
         self.dataset = datasets.load_dataset(dataset_name, split=split)
         # streaming=True used together with .with_format("torch") doesn't work quite right
         self.dataset = self.dataset.with_format("torch")
@@ -97,10 +101,11 @@ class HFStreamingIterable(IterableDataset):
         dataset_name: str,
         split: str = "train",
         transform: Optional[Callable] = None,
-        buffer_size: int = 0
+        buffer_size: int = 0 # default buffer size is 0 to do no shuffling
     ):
         super().__init__()
         self.dataset_name = dataset_name
+        # TODO: pass split and buffer_size from trainer calls - think it's currently left to defaults
         self.split = split
         self.buffer_size = buffer_size
         self._set_transforms(transform)

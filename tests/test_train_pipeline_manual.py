@@ -46,8 +46,7 @@ def test_image_training_pipeline_dict_override(hf_content_path=r"bitmind/MS-COCO
         # Now run the pipeline. This is analogous to a CLI call with a config file.
         trainer = ImageTrainer(config)
         trainer.train()
-        ckpt_path = trainer.config.ckpt_path
-        assert os.path.isfile(ckpt_path), "No checkpoint file found after training."
+        assert os.path.isfile(trainer.config.ckpt_dest), "No checkpoint file found after training."
 
 
 if __name__ == "__main__":

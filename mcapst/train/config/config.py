@@ -101,7 +101,7 @@ class TrainingConfig(BaseConfigModel):
     data_cfg: DatasetConfig
     loss_cfg: LossConfig
     logs_directory: Path = Field("logs", description="Directory to save training logs. Defaults to a new top-level directory named 'logs/'")
-    resume: bool = Field(False, description="Whether to resume training from the provided 'ckpt_path'.")
+    resume: bool = Field(False, description="Whether to resume training from the provided 'ckpt_dest'.")
     log_interval: NonNegativeInt = Field(10, description="Interval for logging training progress; Log every `log_interval` batches.")
     lr: PositiveFloat = Field(1e-4, description="Learning rate for training optimization.")
     #& now defaulting to 0, so that the learning rate is constant during training
@@ -112,7 +112,7 @@ class TrainingConfig(BaseConfigModel):
     ckpt_interval: NonNegativeInt = Field(5000, description="Interval for saving model checkpoints; Log every `ckpt_interval` batches.")
     grad_max_norm: PositiveFloat = Field(5.0, description="Maximum norm for gradient clipping during training.")  # clamp max norm of the gradient to this
     # destination path with default name based on current date and time or if provided while resume is True, the path to the checkpoint to resume from
-    ckpt_path: Path = Field(
+    ckpt_dest: Path = Field(
         default_factory=lambda: Path("checkpoints")/Path(datetime.now().strftime("%Y-%m-%d_%H-%M-%S")).with_suffix(".pt"),
         description="Path to the checkpoint file to resume training from; Otherwise defaults to a new checkpoint based on datetime."
     )

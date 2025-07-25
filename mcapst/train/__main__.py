@@ -1,24 +1,32 @@
-
+# mcapst/train/__main__.py
 
 import argparse
-import sys
 # imported from `train` submodule
-from .train import stage_training_pipeline
+from .train import stage_training_pipeline, TrainingConfig
+from ..core.utils.config_utils import parser_from_cfg_factory
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="MCAPST training entrypoint")
+    parser = argparse.ArgumentParser(
+        prog="mcapst.train",
+        description="MCAPST training entrypoint"
+    )
     parser.add_argument(
         "--config_path",
         type=str,
         default=None,
-        help="Path to YAML configuration file",
+        required=False,
+        help="(Optional) Path to YAML configuration file",
     )
-    args, unknown = parser.parse_known_args(argv)
-    # remove parsed args (config_path) so TrainingConfigManager sees only the remaining options in argv
-    sys.argv = [sys.argv[0]] + unknown
-    stage_training_pipeline(config_path=args.config_path)
+    args: argparse.Namespace = parser_from_cfg_factory(
+        TrainingConfig,
+        desc="Training configuration options",
+        argv=argv,
+        parser=parser,
+    )
+    # load the Pydantic config (merges YAML + CLI) and hand off to the training pipeline
+    return stage_training_pipeline(args.config_path)
 
 
 if __name__ == "__main__":
-    main()
+    _ = main()

@@ -115,7 +115,7 @@ class InferenceConfig(BaseConfigModel):
         lst = v if isinstance(v, (list, tuple)) else [v]
         if len(lst) == 1:
             # TODO: remove this after adding ranges to `alpha_s` Field - need to figure out how to do it with Unions of lists and floats
-            return [min(float(lst[0]), 1.0)]
+            return lst
         # only normalize with multiple styles since multi-style interpolation blends them by their individual weights
         total = sum(lst)
         if total == 0:

@@ -1,7 +1,7 @@
 
 """ will be moving the temporal loss and Matting Laplacian loss to this file while refactoring to use pure pytorch """
 
-from typing import Dict, Union, Literal, Callable
+from typing import Dict, Union, Literal, Callable, Optional
 import torch
 # local imports
 from mcapst.core.models.VGG import VGG19
@@ -13,22 +13,23 @@ from .temporal_loss import TemporalLoss
 
 class LossManager:
     # TODO: replace with custom type hinting later
-    def __init__(self, config: Dict[str, Union[str, int, float, bool]], style_encoder=None):
+    def __init__(self, config: Dict[str, Union[str, int, float, bool]], device: Optional[Union[str, torch.device]] = None):
         """ Loss manager for computing various losses during training.
             Args:
                 config (dict): Configuration dictionary.
                 style_encoder (BaseStyleEncoder, optional): A style encoding model for computing content/style loss.
         """
-        self.l1_loss = torch.nn.L1Loss()
+        # TODO: add some logic to move each torch.nn.Module to the same device as the content/style images
+        self.l1_loss = torch.nn.L1Loss().to(device=device)
         self.content_weight = config.content_weight
         self.style_weight = config.style_weight
         self.rec_weight = config.rec_weight
         self.lap_weight = config.lap_weight
         self.temporal_weight = config.temporal_weight
-        self.temporal_loss = TemporalLoss() if self.temporal_weight > 0 else None
-        self.style_encoder = style_encoder if style_encoder is not None else VGG19(config.vgg_ckpt)  # Store style encoder or use default VGG19
+        self.temporal_loss = TemporalLoss().to(device=device) if self.temporal_weight > 0 else None
+        self.style_encoder = VGG19(config.vgg_ckpt).to(device=device)  # Store style encoder or use default VGG19
         # NOTE: using win_rad = 1 because only 3x3 kernels are supported for now - the original never supported larger kernels either
-        self.laplacian_loss_module = MattingLaplacianLoss(win_rad=1) if self.lap_weight > 0 else None
+        self.laplacian_loss_module = MattingLaplacianLoss(win_rad=1).to(device=device) if self.lap_weight > 0 else None
 
     @staticmethod
     def _toggle_grad(*args):
