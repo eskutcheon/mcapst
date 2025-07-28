@@ -5,10 +5,10 @@ from pydantic import (
     BaseModel, Field, ConfigDict, field_validator, model_validator, ValidationInfo,
     PositiveInt, PositiveFloat, NonNegativeFloat, NonNegativeInt, DirectoryPath
 )
-from typing import Optional, Literal, Union, Dict, Any, Annotated
+from typing import Optional, Literal, Union, Annotated
 # local imports
-from mcapst.core.utils.config_utils import BaseConfigModel, ConfigManager
-from mcapst.core.utils.utils import test_if_valid_hf_dataset
+from mcapst.core.utils.config_utils import BaseConfigModel #, ConfigManager
+
 
 
 
@@ -20,7 +20,7 @@ DEFAULT_VGG_CKPT = ("checkpoints/vgg_normalised.pth", "1HChq_ab5DmdUMDqO_5KTQhwo
 class LossConfig(BaseModel):
     style_weight: float = Field(1.0, ge=0.0, le=1.0, description="Weight for style loss component.")   # original default: 1.0
     content_weight: float = Field(0.0, ge=0.0, le=1.0, description="Weight for content loss component.")  # original default: 0.0
-    lap_weight: NonNegativeFloat = Field(200.0, description="Weight for Matting Laplacian loss component. Set to 0 to omit.") # original default: 1500
+    lap_weight: NonNegativeFloat = Field(300.0, description="Weight for Matting Laplacian loss component. Set to 0 to omit.") # original default: 1500
     rec_weight: PositiveFloat = Field(10.0, description="Weight for reconstruction (L1) loss component.") # original default: 10.0
     temporal_weight: NonNegativeFloat = Field(0.0, description="Weight for temporal loss in video style transfer. Default=0 when modality != 'video'") # original default: 60.0
     vgg_ckpt: Path = Field(DEFAULT_VGG_CKPT[0], description="Path to the VGG19 checkpoint for style encoding")
@@ -84,6 +84,7 @@ class HFDatasetConfig(BaseModel):
     # TODO: add default datasets from `orchestrator.py` to be set here instead (and notify user) - also might want this to be a field_validator instead
     @model_validator(mode="after")
     def check_hf_names(self):
+        from mcapst.core.utils.utils import test_if_valid_hf_dataset
         for name in (self.train_content, self.train_style):
             if name is not None and not test_if_valid_hf_dataset(name):
                 raise ValueError(f"Invalid HF dataset: {name!r}")
@@ -98,8 +99,8 @@ DatasetConfig = Annotated[
 
 class TrainingConfig(BaseConfigModel):
     """ Configuration model for training mode, with fields for datasets, training parameters, and loss settings. """
-    data_cfg: DatasetConfig
-    loss_cfg: LossConfig
+    data_cfg: DatasetConfig = Field(default_factory=HFDatasetConfig) # should only be called when no data_cfg arguments are provided, so default is HFDatasetConfig
+    loss_cfg: LossConfig = Field(default_factory=LossConfig)
     logs_directory: Path = Field("logs", description="Directory to save training logs. Defaults to a new top-level directory named 'logs/'")
     resume: bool = Field(False, description="Whether to resume training from the provided 'ckpt_dest'.")
     log_interval: NonNegativeInt = Field(10, description="Interval for logging training progress; Log every `log_interval` batches.")
@@ -109,7 +110,7 @@ class TrainingConfig(BaseConfigModel):
     lr_decay: NonNegativeFloat = Field(0, description="Decay rate for learning rate during training. Default is 0 (constant LR).")
     # the number of batches the trainer goes through - might want to refactor to use epochs eventually, but the original authors used this
     train_iter: PositiveInt = Field(160_000, description="Total number of training iterations (number of batches to process).")
-    ckpt_interval: NonNegativeInt = Field(5000, description="Interval for saving model checkpoints; Log every `ckpt_interval` batches.")
+    ckpt_interval: NonNegativeInt = Field(500, description="Interval for saving model checkpoints; Log every `ckpt_interval` batches.")
     grad_max_norm: PositiveFloat = Field(5.0, description="Maximum norm for gradient clipping during training.")  # clamp max norm of the gradient to this
     # destination path with default name based on current date and time or if provided while resume is True, the path to the checkpoint to resume from
     ckpt_dest: Path = Field(
@@ -133,14 +134,23 @@ class TrainingConfig(BaseConfigModel):
     #         raise TypeError(f"{info.field_name} must be a DatasetConfig or LossConfig instance or a dictionary")
     #     return v
 
-    @field_validator('ckpt_interval', mode='before')
-    def check_ckpt_interval(cls, v):
-        """ just print a warning if the interval is 0, but don't raise an error, in case the user doesn't actually want to run in debug mode """
-        if v == 0:
-            print("WARNING: ckpt_interval is set to 0, which means no checkpoints will be saved during training.")
-        elif v > cls.train_iter:
-            raise ValueError(f"ckpt_interval ({v}) must be less than or equal to train_iter ({cls.train_iter}).")
+    @field_validator("data_cfg", mode="before")
+    def _coerce_data_cfg_bool(cls, v):
+        """ CLI may pass {'use_local_data': 'True'} (a str), but the union discriminator needs a real bool. """
+        if isinstance(v, dict) and "use_local_data" in v:
+            use_local = v["use_local_data"]
+            if isinstance(use_local, str):
+                v["use_local_data"] = use_local.lower() in ("1", "true", "yes")
         return v
+
+    @model_validator(mode='after')
+    def check_ckpt_interval(self):
+        """ just print a warning if the interval is 0, but don't raise an error, in case the user doesn't actually want to run in debug mode """
+        if self.ckpt_interval == 0:
+            print("WARNING: ckpt_interval is set to 0, which means no checkpoints will be saved during training.")
+        elif self.ckpt_interval > self.train_iter:
+            raise ValueError(f"ckpt_interval ({self.ckpt_interval}) must be less than or equal to train_iter ({self.train_iter}).")
+        return self
 
     @model_validator(mode='after')
     def cross_validate(self):
@@ -151,6 +161,6 @@ class TrainingConfig(BaseConfigModel):
         return self
 
 
-def get_training_config_manager(config_path: Optional[str] = None) -> ConfigManager:
-    """ Returns a ConfigManager for the TrainingConfig model """
-    return ConfigManager(TrainingConfig, config_path, description="Training configuration")
+# def get_training_config_manager(config_path: Optional[str] = None) -> ConfigManager:
+#     """ Returns a ConfigManager for the TrainingConfig model """
+#     return ConfigManager(TrainingConfig, config_path, description="Training configuration")

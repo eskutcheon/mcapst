@@ -5,11 +5,10 @@ import torch
 # TODO: extract to a new logging file later
 from torch.utils.tensorboard import SummaryWriter
 # local imports
-from mcapst.train.datasets.orchestrator import DataManager
-from mcapst.train.loss.manager import LossManager
-from mcapst.train.config.config import TrainingConfig, get_training_config_manager
-from mcapst.train.loss.loss_utils import RunningMeanLoss
+from mcapst.train.config.config import TrainingConfig #, get_training_config_manager
 
+
+#os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"  # to avoid fragmentation issues with CUDA memory allocation
 
 
 TRANSFER_MODE_ALIASES = {
@@ -28,13 +27,14 @@ class TrainerBase:
         self.current_iter = 0
         self.total_iterations = self.config.train_iter # + self.config.fine_tuning_iterations
         self.writer = SummaryWriter(log_dir=self.config.logs_directory)
+        # lazy import to avoid circular imports and improve startup time
+        from mcapst.train.datasets.orchestrator import DataManager
+        from mcapst.train.loss.manager import LossManager
         self.data_manager = DataManager(self.config.transfer_mode, self.config.data_cfg)
-        self.loss_manager = LossManager(self.config.loss_cfg)
-        # Let child classes define self.model, switch to using the stylizer classes like with BaseImageStylizer, etc.
-            # would probably need to immediately save a model to a checkpoint after initialization to pass as a checkpoint to the stylizer class
-        self.model = None
+        self.loss_manager = LossManager(self.config.loss_cfg, self.device)
         self.optimizer = None
         # small container class for tracking running means of losses (primarily for logging purposes)
+        from mcapst.train.loss.loss_utils import RunningMeanLoss
         self.mean_losses = RunningMeanLoss()
 
 
@@ -53,19 +53,18 @@ class TrainerBase:
                 raise ValueError(f"Invalid transfer mode: '{mode}'!\nExpected one of {all_modes}.")
 
     def set_model_and_optimizer(self, model: torch.nn.Module):
-        self.model = model
         # Initialize model and optimizer
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config.lr)
+        self.optimizer = torch.optim.Adam(model.parameters(), lr=self.config.lr)
         # Resume if needed
         if self.config.resume:
             self._resume_checkpoint()
 
-    def _resume_checkpoint(self):
+    def _resume_checkpoint(self, model: torch.nn.Module):
         # TODO: remove after being handled by Pydantic validation (unless this is used as an API checkpoint separate from the config)
         if not os.path.isfile(self.config.ckpt_dest):
             raise FileNotFoundError(f"Cannot resume: checkpoint path '{self.config.ckpt_dest}' not found.")
         checkpoint = torch.load(self.config.ckpt_dest, weights_only=True, map_location=self.device)
-        self.model.load_state_dict(checkpoint["state_dict"])
+        model.load_state_dict(checkpoint["state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer"])
         self.current_iter = int(checkpoint["iteration"].item())
         if self.current_iter >= self.total_iterations:
@@ -75,11 +74,11 @@ class TrainerBase:
     def train(self):
         raise NotImplementedError("Train method should be implemented in subclasses.")
 
-    def _save_checkpoint(self):
+    def _save_checkpoint(self, model: torch.nn.Module):
         if self.config.ckpt_interval > 0 and self.current_iter % self.config.ckpt_interval == 0:
             os.makedirs(os.path.dirname(self.config.ckpt_dest), exist_ok=True)
             torch.save({
-                "state_dict": self.model.state_dict(),
+                "state_dict": model.state_dict(),
                 "optimizer": self.optimizer.state_dict(),
                 "iteration": torch.tensor([self.current_iter], dtype=torch.int32)
             }, self.config.ckpt_dest)
@@ -100,6 +99,8 @@ class TrainerBase:
         if self.config.log_interval > 0 and (self.current_iter + 1) % self.config.log_interval == 0:
             # TODO: separate out the progress bar updates from the logging to TensorBoard
             loss_str = self.get_loss_log_string(self.mean_losses.get_means())
+            if self.current_iter % 100 == 0:
+                self.mean_losses.reset()  # reset running means every 100 iterations
             pbar.set_description(loss_str, refresh=False)
             self.writer.add_scalar("Total Loss", losses["total"], self.current_iter)
 
@@ -145,12 +146,13 @@ class ImageTrainer(TrainerBase):
             # back-propagation gradient computation and optimization
             total_loss: torch.Tensor = losses["total"]
             total_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), grad_clip_magnitude)
+            del stylized_batch, content_batch, style_batch  # free up memory
+            torch.nn.utils.clip_grad_norm_(self.transfer_module.revnet.parameters(), grad_clip_magnitude)
             self.optimizer.step()
             # logging and checkpointing steps (only log every log_interval iterations)
             self._log_progress(losses, pbar=pbar)
             # save model checkpoints - would be refactored more like my semantic segmentation project if I switch to epochs instead of iterations
-            self._save_checkpoint()
+            self._save_checkpoint(self.transfer_module.revnet)
             self.current_iter += 1
 
 
@@ -178,11 +180,6 @@ class VideoTrainer(TrainerBase):
         # TODO: revisit how this is used later - the stylizer below was primarily made for inference and isn't currently suited to training
         # from mcapst.data.managers import BaseVideoStylizer
         # self.transfer_module = BaseVideoStylizer(
-        #     mode=self.config.transfer_mode,
-        #     ckpt=self.config.ckpt_dest,
-        #     max_size=self.config.data_cfg.new_size,
-        #     reg_method="ridge",
-        #     train_mode=True)
         self.set_model_and_optimizer(self.transfer_module.revnet)
 
     def _validate_config(self):
@@ -210,12 +207,13 @@ class VideoTrainer(TrainerBase):
             # Back-propagation and optimization
             total_loss: torch.Tensor = losses["total"]
             total_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), grad_clip_magnitude)
+            del stylized_batch, content_batch, style_batch  # free up memory
+            torch.nn.utils.clip_grad_norm_(self.transfer_module.revnet.parameters(), grad_clip_magnitude)
             self.optimizer.step()
             # logging and checkpointing steps (only log every log_interval iterations)
             self._log_progress(losses, pbar=pbar)
             # save model checkpoints - would be refactored more like my semantic segmentation project if I switch to epochs instead of iterations
-            self._save_checkpoint()
+            self._save_checkpoint(self.transfer_module.revnet)
             self.current_iter += 1
 
 
@@ -225,8 +223,9 @@ def stage_training_pipeline(config_path: Optional[str] = None, config: Optional[
         ```python -m mcapst.pipelines.train --mode training --config_path path/to/train_config.yaml```
     """
     if config is None:
-        config_manager = get_training_config_manager(config_path=config_path)
-        config: TrainingConfig = config_manager.config_model
+        # config_manager = get_training_config_manager(config_path=config_path)
+        # config: TrainingConfig = config_manager.config_model
+        config = TrainingConfig(config_path=config_path)
     if config.modality == "image":
         trainer = ImageTrainer(config)
     elif config.modality == "video":

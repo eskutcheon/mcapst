@@ -6,7 +6,6 @@ import torchvision.io as IO
 from .base_stylizers import BaseStylizer, transform_preprocess
 from ..models.containers import FeatureContainer, StyleWeights
 from ..utils.utils import ensure_file_list_format
-from ..utils.label_remapping import SegLabelMapper
 
 
 
@@ -102,6 +101,7 @@ class MaskedImageStylizer(BaseImageStylizer):
         """
         raise NotImplementedError("Not tested and confirmed working yet; also needs refactoring for strictly handling style tensors")
         super().__init__(mode, ckpt, max_size, postprocessor, reg_method)
+        from ..utils.label_remapping import SegLabelMapper
         self.segmentation_model = self._initialize_segmentation_model(seg_model_ckpt)
         self.label_mapper = SegLabelMapper(mapping_name=seg_labels_path, min_ratio=0.01) if seg_labels_path else None
         # TODO: might want to either raise an error if seg_labels_path is None or just set it to a default path

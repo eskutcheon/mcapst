@@ -1,14 +1,6 @@
-
-""" will be moving the temporal loss and Matting Laplacian loss to this file while refactoring to use pure pytorch """
-
+# mcapst/train/loss/manager.py
 from typing import Dict, Union, Literal, Callable, Optional
 import torch
-# local imports
-from mcapst.core.models.VGG import VGG19
-from .matting_laplacian import MattingLaplacianLoss
-from .temporal_loss import TemporalLoss
-
-
 
 
 class LossManager:
@@ -19,17 +11,32 @@ class LossManager:
                 config (dict): Configuration dictionary.
                 style_encoder (BaseStyleEncoder, optional): A style encoding model for computing content/style loss.
         """
-        # TODO: add some logic to move each torch.nn.Module to the same device as the content/style images
-        self.l1_loss = torch.nn.L1Loss().to(device=device)
+        # lazy imports to minimize global import overhead
+        from mcapst.core.models.VGG import VGG19
+        from .matting_laplacian import MattingLaplacianLoss
+        from .temporal_loss import TemporalLoss
         self.content_weight = config.content_weight
         self.style_weight = config.style_weight
         self.rec_weight = config.rec_weight
         self.lap_weight = config.lap_weight
         self.temporal_weight = config.temporal_weight
-        self.temporal_loss = TemporalLoss().to(device=device) if self.temporal_weight > 0 else None
-        self.style_encoder = VGG19(config.vgg_ckpt).to(device=device)  # Store style encoder or use default VGG19
+        self.l1_loss = torch.nn.L1Loss()
+        self.style_encoder = VGG19(config.vgg_ckpt)  # Store style encoder or use default VGG19
+        self.temporal_loss = TemporalLoss() if self.temporal_weight > 0 else None
         # NOTE: using win_rad = 1 because only 3x3 kernels are supported for now - the original never supported larger kernels either
-        self.laplacian_loss_module = MattingLaplacianLoss(win_rad=1).to(device=device) if self.lap_weight > 0 else None
+        self.laplacian_loss_module = MattingLaplacianLoss(win_rad=1) if self.lap_weight > 0 else None
+        if device is not None:
+            self._move_models_to_device(device)
+
+
+    def _move_models_to_device(self, device: Union[str, torch.device]):
+        """ Moves the loss manager's models to the specified device. """
+        self.l1_loss = self.l1_loss.to(device)
+        self.style_encoder = self.style_encoder.to(device)
+        if self.temporal_loss is not None:
+            self.temporal_loss = self.temporal_loss.to(device)
+        if self.laplacian_loss_module is not None:
+            self.laplacian_loss_module = self.laplacian_loss_module.to(device)
 
     @staticmethod
     def _toggle_grad(*args):

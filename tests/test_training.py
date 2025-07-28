@@ -3,7 +3,7 @@ import sys
 import yaml
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 # from mcapst.datasets.datasets import HFImageDataset
-from mcapst.train import ImageTrainer, VideoTrainer, get_training_config_manager
+from mcapst.train import ImageTrainer, VideoTrainer, TrainingConfig #, get_training_config_manager
 
 def main():
     # Create a temporary config file
@@ -39,8 +39,9 @@ def main():
     with open(config_path, "w") as file:
         yaml.dump(config, file)
     # load ConfigManager and initialize training
-    config_manager = get_training_config_manager(config_path=config_path)
-    trainer = ImageTrainer(config_manager.config_model)
+    # config_manager = get_training_config_manager(config_path=config_path)
+    cfg = TrainingConfig(config_path=config_path)
+    trainer = ImageTrainer(cfg)
     #trainer = VideoTrainer(config_manager.config_model)
     trainer.train()
     # clean up

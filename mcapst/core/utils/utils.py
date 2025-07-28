@@ -57,23 +57,9 @@ def adjust_learning_rate(optimizer, lr, lr_decay, iteration_count):
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
-
-def img_resize(img, max_size, down_scale=None):
-    w, h = img.size
-    if max(w, h) > max_size:
-        w = int(1.0 * img.size[0] / max(img.size) * max_size)
-        h = int(1.0 * img.size[1] / max(img.size) * max_size)
-        img = img.resize((w, h), Image.BICUBIC)
-    if down_scale is not None:
-        w = w // down_scale * down_scale
-        h = h // down_scale * down_scale
-        img = img.resize((w, h), Image.BICUBIC)
-    return img
-
 #^#################################################################################################
 #^ END OF ORIGINAL CAP-VSTNet CODE - BEGINNING OF NEW CODE
 #^#################################################################################################
-
 
 
 def ensure_list_format(str_list: Union[str, Iterable[str]]):
@@ -93,7 +79,6 @@ def ensure_file_list_format(paths: Union[str, Iterable[str]]):
     return paths
 
 
-
 def get_user_confirmation(prompt: str) -> bool:
     answers = {'y': True, 'n': False}
     response = input(f"{prompt} [Y/n] ").lower()
@@ -103,14 +88,14 @@ def get_user_confirmation(prompt: str) -> bool:
     return answers[response]
 
 #& unused but I just feel like there may be a need for it later
-def _replace_dir_with_files(paths: List[str], supported_ext: Sequence[str]) -> List[str]:
-    """ if any path is a directory, remove it from the list and add all its files to the list instead """
-    if any(os.path.isdir(p) for p in paths):
-        to_pop = [i for i, p in enumerate(paths) if os.path.isdir(p)]
-        for i in reversed(to_pop):
-            p = paths.pop(i)
-            paths.extend(_get_full_path_list(p, supported_ext))
-    return paths
+# def _replace_dir_with_files(paths: List[str], supported_ext: Sequence[str]) -> List[str]:
+#     """ if any path is a directory, remove it from the list and add all its files to the list instead """
+#     if any(os.path.isdir(p) for p in paths):
+#         to_pop = [i for i, p in enumerate(paths) if os.path.isdir(p)]
+#         for i in reversed(to_pop):
+#             p = paths.pop(i)
+#             paths.extend(_get_full_path_list(p, supported_ext))
+#     return paths
 
 def _get_full_path_list(dir_path: str, supported_ext: Sequence[str]) -> List[str]:
     file_list = []
@@ -181,30 +166,30 @@ def cpu_wrapper(compute_on_cpu):
     return decorator
 
 
-
-def target_equals_benchmark(target: torch.Tensor, filename: str, exact = True, rtol=1e-3, atol=1e-5, names = ["SOURCE", "TARGET"]) -> bool:
-    """ Loads saved tensors and compares with the target tensor
-        Args:
-            target (torch.Tensor): Extracted indices from PyTorch
-            filename (str): Path to saved NumPy-based `source.pt`
-    """
-    # TODO: should probably separate loading the source tensor and comparing into separate functions (and check loaded type)
-    # load the saved indices
-    source: torch.Tensor = torch.load(filename, weights_only=True)
-    # ensure shapes match
-    if source.ndim != target.ndim or source.shape != target.shape:
-        print(f"Shape Mismatch: {names[0]} {source.shape}, {names[1]} {target.shape}")
-        return False
-    # check if values match
-    is_equal = False
-    try:
-        if exact:
-            is_equal = torch.equal(source, target)
-            out_str = f"{names[1]} {'matches' if is_equal else 'does NOT match'} {names[0]}!"
-        else:
-            is_equal = torch.allclose(source, target, rtol=rtol, atol=atol)
-            out_str = f"{names[1]} {'is close to' if is_equal else 'is NOT close to'} {names[0]} within rtol={rtol}, atol={atol}!"
-    except Exception as e:
-        out_str = f"Error comparing tensors: {e}"
-    print(out_str)
-    return is_equal
+#& unused but could be integrated into the final test suite at some point
+# def target_equals_benchmark(target: torch.Tensor, filename: str, exact = True, rtol=1e-3, atol=1e-5, names = ["SOURCE", "TARGET"]) -> bool:
+#     """ Loads saved tensors and compares with the target tensor
+#         Args:
+#             target (torch.Tensor): Extracted indices from PyTorch
+#             filename (str): Path to saved NumPy-based `source.pt`
+#     """
+#     # TODO: should probably separate loading the source tensor and comparing into separate functions (and check loaded type)
+#     # load the saved indices
+#     source: torch.Tensor = torch.load(filename, weights_only=True)
+#     # ensure shapes match
+#     if source.ndim != target.ndim or source.shape != target.shape:
+#         print(f"Shape Mismatch: {names[0]} {source.shape}, {names[1]} {target.shape}")
+#         return False
+#     # check if values match
+#     is_equal = False
+#     try:
+#         if exact:
+#             is_equal = torch.equal(source, target)
+#             out_str = f"{names[1]} {'matches' if is_equal else 'does NOT match'} {names[0]}!"
+#         else:
+#             is_equal = torch.allclose(source, target, rtol=rtol, atol=atol)
+#             out_str = f"{names[1]} {'is close to' if is_equal else 'is NOT close to'} {names[0]} within rtol={rtol}, atol={atol}!"
+#     except Exception as e:
+#         out_str = f"Error comparing tensors: {e}"
+#     print(out_str)
+#     return is_equal

@@ -1,12 +1,15 @@
-from typing import Dict, List, Literal, Union, Iterable, Optional
+
+import os
+from typing import Dict, List, Literal, Union, Iterable, Optional, Callable
 import functools
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import numpy as np
 import torch
 import torchvision.transforms.v2 as TT
+import torchvision.io as IO
 # local imports
-from ..utils.img_utils import iterable_to_tensor
-
+from ..utils.utils import ensure_file_list_format
+from ..utils.img_utils import iterable_to_tensor, post_transfer_blending
 
 
 
@@ -57,6 +60,7 @@ class StyleWeights:
     #& I'm considering looking into the pytorch dunder method `__torch_function__` for this to override all calls by pytorch functions
     # https://pytorch.org/docs/stable/notes/extending.html#extending-torch-python-api
     # https://github.com/docarray/notes/blob/main/blog/02-this-weeks-in-docarray-01.md
+    #& unused everywhere
     def to_tensor(self, device: torch.device) -> torch.Tensor:
         return torch.tensor(self.weights, device=device, dtype=torch.float32)
 
@@ -115,6 +119,7 @@ class FeatureContainer(object):
         self.feat: torch.Tensor = iterable_to_tensor(features, max_size, is_mask=False) if isinstance(features, list) else features
         # print(f"{feature_type} feature range after `iterable_to_tensor`: {self.feat.min(), self.feat.max()}")
         self.batch_size = self.feat.shape[0]
+        #& totally unused everywhere
         self.feat_type: str = feature_type
         self.feat_shape_init: torch.Size = self.feat.shape
         self.feat_dtype_init: torch.dtype = self.feat.dtype
@@ -159,6 +164,7 @@ class FeatureContainer(object):
         if self.mask.device != self.feat.device:
             self.mask = self.mask.to(self.feat.device)
 
+    #& unused everywhere, but this is the general approach I think I'll keep for the masked version later
     def get_mask_indices(self, label):
         # ? NOTE: pretty much wrote this while still assuming that we're iterating over labels, but passing the whole batch this time
         # ~ could always try the FeatureContainerIterable again later and use this with torch.vmap
@@ -184,3 +190,53 @@ class FeatureContainer(object):
 
 
 
+
+
+@dataclass
+class StylizerArgs:
+    style_paths: Union[str, List[str], List[torch.Tensor], torch.Tensor]
+    use_segmentation: bool = False
+    use_blending: bool = False
+    alpha_c: Union[float, None] = None
+    alpha_s: Union[float, Iterable[float]] = None
+    mask_paths: Union[str, List[str], None] = None
+    cmask: Optional[torch.Tensor] = None  # Content mask from `sample`
+    smask: Optional[List[torch.Tensor]] = field(default_factory=list)  # Style masks, loaded dynamically
+    #! both are still used in the VideoStylizer, but not in the ImageStylizer - replace with a forward hook or just return videos to the caller to do it?
+    # save_output: bool = True
+    # output_path: Optional[str] = None
+
+    def as_dict(self, supported_args: List[str]) -> Dict[str, any]:
+        """ Filter arguments based on the supported ones for a specific class or method. """
+        return {arg: getattr(self, arg) for arg in supported_args if hasattr(self, arg)}
+
+    def construct_postprocessor(self) -> Union[Optional[Callable], None]:
+        """ Dynamically create a postprocessor based on current argument values. """
+        postprocessors = []
+        if self.use_blending:
+            postprocessors.append(post_transfer_blending)
+        # FIXME: won't currently work when wrapped by torchvision.transforms container objects
+        if not postprocessors:
+            return None
+        # combine all postprocessors into a single callable and return the function handle
+        def combined_postprocessor(tensor: torch.Tensor) -> torch.Tensor:
+            for postprocessor in postprocessors:
+                tensor = postprocessor(tensor)
+            return tensor
+        return combined_postprocessor
+
+    def load_style_masks(self, style_paths: List[str], default_mask_dir: Optional[str] = None, device: torch.device = None) -> None:
+        """ Load style masks from provided paths or infer from style paths. """
+        if self.mask_paths:
+            self.smask = [IO.read_image(path, IO.ImageReadMode.UNCHANGED).to(device) for path in ensure_file_list_format(self.mask_paths)]
+        elif default_mask_dir:
+            # Infer mask paths based on style filenames
+            inferred_paths = [os.path.join(default_mask_dir, os.path.basename(path)) for path in style_paths]
+            self.smask = [IO.read_image(path, IO.ImageReadMode.UNCHANGED).to(device) for path in inferred_paths if os.path.exists(path)]
+
+    def validate_segmentation(self, sample: Dict[str, torch.Tensor]) -> None:
+        """ Ensure that segmentation masks are valid if required. """
+        if self.use_segmentation:
+            self.cmask = sample.get("mask")
+            if self.cmask is None:
+                raise ValueError("Segmentation enabled, but content mask (`cmask`) is missing in the sample.")

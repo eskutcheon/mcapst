@@ -27,6 +27,7 @@ keywords = [
 ]
 dependencies = [
     "pydantic>=2.8.1",
+    "pydantic-settings>=2.8.1",
     "PyYAML>=6.0.2",
     "dataclasses>=0.6",
     "pillow>=11.1.0",

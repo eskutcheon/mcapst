@@ -3,11 +3,9 @@
 
 from .models.CAPVSTNet import CAPVSTNet
 from .models.RevResNet import RevResNet
-from .models.VGG import VGG19
 from .models.cWCT import cWCT
-from .models.containers import FeatureContainer, StyleWeights
 
-from .stylizers.base_stylizers import StylizerArgs, BaseStylizer
+from .stylizers.base_stylizers import BaseStylizer
 from .stylizers.image_stylizers import BaseImageStylizer, MaskedImageStylizer
 from .stylizers.video_stylizers import BaseVideoStylizer, MaskedVideoStylizer
 
@@ -20,16 +18,14 @@ from .utils.img_utils import (
 )
 from .utils.video_processor import VideoProcessor
 from .utils.label_remapping import SegLabelMapper
-from .utils.config_utils import ConfigManager, BaseConfigModel
+from .utils.config_utils import BaseConfigModel # ConfigManager
 
+
+# TODO: remove a ton of these unused imports, especially after updating to use more lazy imports in class constructors
 __all__ = [
     "CAPVSTNet",
     "RevResNet",
-    "VGG19",
     "cWCT",
-    "FeatureContainer",
-    "StyleWeights",
-    "StylizerArgs",
     "BaseStylizer",
     "BaseImageStylizer",
     "MaskedImageStylizer",
@@ -37,7 +33,7 @@ __all__ = [
     "MaskedVideoStylizer",
     "VideoProcessor",
     "SegLabelMapper",
-    "ConfigManager",
+    # "ConfigManager",
     "BaseConfigModel",
     "ensure_file_list_format",
     "ensure_list_format",

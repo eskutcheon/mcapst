@@ -57,6 +57,7 @@ class DataManager:
         if not os.path.isdir(root_or_name):
             raise NotADirectoryError(f"Local dataset path '{root_or_name}' is not a directory as expected with use_local_dataset=True.")
 
+    # TODO: remove this entirely and set the default in the config instead
     def _validate_hf_setting(self, root_or_name: str):
         if not test_if_valid_hf_dataset(root_or_name):
             if os.path.exists(root_or_name):

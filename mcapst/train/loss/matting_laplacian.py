@@ -1,7 +1,6 @@
 from typing import List, Optional, Sequence, Tuple
 import torch
 import torch.nn.functional as F
-from mcapst.train.loss.loss_utils import IndexCache
 import concurrent.futures
 
 
@@ -76,6 +75,7 @@ class MattingLaplacianLoss(torch.nn.Module):
         self.win_size = self.win_diam ** 2
         # identity matrix saved to a module buffer for regularizing the covariance matrix and solving for its inverse
         self.register_buffer("ident", torch.eye(self.win_diam, dtype=torch.float64), persistent=False)
+        from mcapst.train.loss.loss_utils import IndexCache
         # add index cache for the COO indices of the sparse matrix into the IndexCache submodule (MLL is still stateless except for this)
         self._cache = IndexCache(self.win_diam) #? NOTE: submodule should be automatically registered in the ModuleDict of the parent class
 

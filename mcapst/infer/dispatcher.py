@@ -33,6 +33,7 @@ class StyleTransferDispatcher:
             num_copies (int): Number of copies of the style manager to create.
             use_cuda_streams (bool): Whether to use CUDA streams for parallelism.
         """
+        raise DeprecationWarning("This class is deprecated and needs to be updated for the new style transfer pipeline; It should still be here in the future either way.")
         self.style_managers = {"art": [], "photo": []}
         num_copies_list = [num_copies, num_copies] if isinstance(num_copies, int) else list(num_copies)
         self.total_copies = sum(num_copies_list)
@@ -53,7 +54,7 @@ class StyleTransferDispatcher:
 
 
     def _initialize_style_managers(self, transfer_type, ckpt_dir, max_size, num_copies_each: List[int]):
-        raise DeprecationWarning("This method is deprecated and will be removed in a future version")
+        raise DeprecationWarning("This method is deprecated and will be updated or removed in the future")
         if not isinstance(transfer_type, (list, tuple)):
             transfer_type = [transfer_type]
         # TODO: need a new way of loading and filtering configuration arguments before just calling .infer.stage_inference_pipeline

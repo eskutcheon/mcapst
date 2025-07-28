@@ -4,11 +4,11 @@ import sys
 import yaml
 import pytest
 from pathlib import Path
-from tempfile import TemporaryDirectory
+# from tempfile import TemporaryDirectory
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from mcapst.train.config.config import TrainingConfig, get_training_config_manager
-from mcapst.infer.config.config import InferenceConfig, get_inference_config_manager
-from mcapst.core.utils.config_utils import ConfigManager
+from mcapst.train.config.config import TrainingConfig #, get_training_config_manager
+from mcapst.infer.config.config import InferenceConfig #, get_inference_config_manager
+# from mcapst.core.utils.config_utils import ConfigManager
 
 # Helpers to make dummy image files
 def make_dummy_images(dirpath: Path, count: int, ext: str = ".jpg"):
@@ -62,8 +62,8 @@ def test_inference_config_from_dict(tmp_path):
     )
     # defaults applied:
     assert cfg.transfer_mode == "photo"
-    assert len(cfg.input_paths.root) == 3
-    assert len(cfg.style_paths.root) == 2
+    assert len(cfg.input_paths) == 3
+    assert len(cfg.style_paths) == 2
     # alphas normalized:
     assert sum(cfg.alpha_s) == pytest.approx(1.0)
 
@@ -75,11 +75,13 @@ def test_inference_config_from_dict(tmp_path):
 def test_training_config_via_yaml_and_cli(tmp_path, monkeypatch):
     # prepare YAML
     cfg_yaml = {
+        #! FIXME: seems like it's not properly setting nested arguments from YAML
         "data_cfg": {
             "use_local_data": True,
             "train_content":  str(tmp_path/"c"),
             "train_style":    str(tmp_path/"s"),
-            "batch_size":  1, "new_size": 256
+            "batch_size":  1,
+            "new_size": 256
         },
         "loss_cfg": {"lap_weight": 500.0},
     }
@@ -95,8 +97,10 @@ def test_training_config_via_yaml_and_cli(tmp_path, monkeypatch):
         f"--lr=2e-3",
         f"--train-iter=500"
     ])
-    mgr = get_training_config_manager(str(yml))
-    cfg = mgr.config_model
+    #mgr = get_training_config_manager(str(yml))
+    #cfg = mgr.config_model
+    cfg = TrainingConfig(config_path=yml) #, cli_args=sys.argv[1:])
+    print("final instantiated config: ", cfg.model_dump())
     assert cfg.lr == pytest.approx(2e-3)
     assert cfg.train_iter == 500
     # preserves YAML defaults
@@ -119,8 +123,10 @@ def test_inference_config_via_yaml_and_cli(tmp_path, monkeypatch):
         "--modality=video",
         "--max-size=512"
     ])
-    mgr = get_inference_config_manager(str(yml))
-    cfg = mgr.config_model
+    # mgr = get_inference_config_manager(str(yml))
+    # cfg = mgr.config_model
+    cfg = InferenceConfig(config_path=yml) #, cli_args=sys.argv[1:])
+    # print(cfg.model_dump())
     assert cfg.modality == "video"
     assert cfg.max_size == 512
 
@@ -133,21 +139,22 @@ def test_training_config_cli_only(tmp_path, monkeypatch):
     style   = tmp_path/"s"; make_dummy_images(style, 20)
     monkeypatch.setattr(sys, "argv", [
         __file__,
-        "--data-cfg.use-local-data",
+        f"--data-cfg.use-local-data={True}",
         f"--data-cfg.train-content={content}",
         f"--data-cfg.train-style={style}",
         "--loss-cfg.style-weight=0.9",
         "--lr=1e-5"
     ])
-    mgr = get_training_config_manager(None)
-    cfg = mgr.config_model
+    # mgr = get_training_config_manager(None)
+    # cfg = mgr.config_model
+    cfg = TrainingConfig() #cli_args=sys.argv[1:])
     assert cfg.data_cfg.use_local_data
     assert cfg.loss_cfg.style_weight == pytest.approx(0.9)
     assert cfg.lr == pytest.approx(1e-5)
 
 
 def test_inference_config_cli_only(tmp_path, monkeypatch):
-    inp  = tmp_path/"in";  make_dummy_images(inp, 2)
+    inp  = tmp_path/"in"; make_dummy_images(inp, 2)
     sty  = tmp_path/"sty"; make_dummy_images(sty, 1)
     monkeypatch.setattr(sys, "argv", [
         __file__,
@@ -155,8 +162,9 @@ def test_inference_config_cli_only(tmp_path, monkeypatch):
         f"--style-paths={sty}",
         "--alpha-s=0.5",
     ])
-    mgr = get_inference_config_manager(None)
-    cfg = mgr.config_model
-    assert len(cfg.input_paths.root) == 2
-    assert len(cfg.style_paths.root) == 1
+    # mgr = get_inference_config_manager(None)
+    # cfg = mgr.config_model
+    cfg = InferenceConfig() #cli_args=sys.argv[1:])
+    assert len(cfg.input_paths) == 2
+    assert len(cfg.style_paths) == 1
     assert cfg.alpha_s == [0.5]

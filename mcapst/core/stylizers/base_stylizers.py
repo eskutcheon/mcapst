@@ -1,69 +1,19 @@
 from typing import Literal, List, Dict, Callable, Iterable, Union, Tuple, Optional
 import functools
 import os
-from dataclasses import dataclass, field
 import torch
 import torchvision.transforms.v2 as TT
 import torchvision.io as IO
 # local imports
 from ..models.RevResNet import RevResNet
 from ..models.CAPVSTNet import CAPVSTNet
-from ..models.containers import FeatureContainer, StyleWeights
+from ..models.containers import FeatureContainer, StyleWeights, StylizerArgs
 from ..utils.utils import ensure_file_list_format
-from ..utils.img_utils import post_transfer_blending, get_scaled_dims, ensure_batch_tensor, iterable_to_tensor
+from ..utils.img_utils import get_scaled_dims, ensure_batch_tensor, iterable_to_tensor
 
 
 # TODO: this whole file really needs to be cleaned up while eliminating redundant code
 
-
-
-@dataclass
-class StylizerArgs:
-    style_paths: Union[str, List[str], List[torch.Tensor], torch.Tensor]
-    use_segmentation: bool = False
-    use_blending: bool = False
-    alpha_c: Union[float, None] = None
-    alpha_s: Union[float, Iterable[float]] = None
-    mask_paths: Union[str, List[str], None] = None
-    cmask: Optional[torch.Tensor] = None  # Content mask from `sample`
-    smask: Optional[List[torch.Tensor]] = field(default_factory=list)  # Style masks, loaded dynamically
-    save_output: bool = True
-    output_path: Optional[str] = None
-
-    def as_dict(self, supported_args: List[str]) -> Dict[str, any]:
-        """ Filter arguments based on the supported ones for a specific class or method. """
-        return {arg: getattr(self, arg) for arg in supported_args if hasattr(self, arg)}
-
-    def construct_postprocessor(self) -> Union[Optional[Callable], None]:
-        """ Dynamically create a postprocessor based on current argument values. """
-        postprocessors = []
-        if self.use_blending:
-            postprocessors.append(post_transfer_blending)
-        # FIXME: won't currently work when wrapped by torchvision.transforms container objects
-        if not postprocessors:
-            return None
-        # combine all postprocessors into a single callable and return the function handle
-        def combined_postprocessor(tensor: torch.Tensor) -> torch.Tensor:
-            for postprocessor in postprocessors:
-                tensor = postprocessor(tensor)
-            return tensor
-        return combined_postprocessor
-
-    def load_style_masks(self, style_paths: List[str], default_mask_dir: Optional[str] = None, device: torch.device = None) -> None:
-        """ Load style masks from provided paths or infer from style paths. """
-        if self.mask_paths:
-            self.smask = [IO.read_image(path, IO.ImageReadMode.UNCHANGED).to(device) for path in ensure_file_list_format(self.mask_paths)]
-        elif default_mask_dir:
-            # Infer mask paths based on style filenames
-            inferred_paths = [os.path.join(default_mask_dir, os.path.basename(path)) for path in style_paths]
-            self.smask = [IO.read_image(path, IO.ImageReadMode.UNCHANGED).to(device) for path in inferred_paths if os.path.exists(path)]
-
-    def validate_segmentation(self, sample: Dict[str, torch.Tensor]) -> None:
-        """ Ensure that segmentation masks are valid if required. """
-        if self.use_segmentation:
-            self.cmask = sample.get("mask")
-            if self.cmask is None:
-                raise ValueError("Segmentation enabled, but content mask (`cmask`) is missing in the sample.")
 
 
 # TODO: Desperately need to refactor this and comply with the single responsibility principle a lot better

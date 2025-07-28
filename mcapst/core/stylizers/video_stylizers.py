@@ -1,9 +1,8 @@
 from typing import Literal, List, Dict, Callable, Iterable, Union, Tuple, Optional
 import functools
 import torch
-import torchvision.io as IO
 # local imports
-from .base_stylizers import BaseStylizer, transform_preprocess, StylizerArgs
+from .base_stylizers import BaseStylizer, StylizerArgs
 from ..models.containers import FeatureContainer, StyleWeights
 from ..utils.video_processor import VideoProcessor
 

@@ -1,48 +1,52 @@
 # mcapst/__main__.py
-import argparse
 
-from mcapst.core.utils.config_utils import ConfigManager, BaseConfigModel, attach_to_parser, BASE_FIELDS
+# from mcapst.core.utils.config_utils import ConfigManager, BaseConfigModel, attach_to_parser, BASE_FIELDS
+import sys
+from argparse import ArgumentParser
+from pydantic import ValidationError
+from pydantic_settings import CliApp, CliSettingsSource
+# local imports
 from mcapst.train.config.config import TrainingConfig
 from mcapst.infer.config.config import InferenceConfig
 from mcapst.train.train import stage_training_pipeline
 from mcapst.infer.infer import stage_inference_pipeline
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(
+    parser = ArgumentParser(
         prog="mcapst",
         description="MCAPST: unified entrypoint for training or inference."
     )
-    parser.add_argument(
-        "--mode",
-        choices=["train", "infer"],
-        required=True,
-        help="Whether to run in training or inference mode."
+    # inference options' subparser
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    # training options' subparser
+    train_parser = subparsers.add_parser(
+        "train", help="Run training", description=TrainingConfig.__doc__
     )
-    parser.add_argument(
-        "--config-path",
-        type=str,
-        default=None,
-        help="Optional YAML config file."
+    # basically does train_cli_src.add_argument(...) for every field in TrainingConfig
+    train_cli_src = CliSettingsSource(TrainingConfig, root_parser=train_parser, cli_parse_args=False)
+    infer_parser = subparsers.add_parser(
+        "infer", help="Run inference", description=InferenceConfig.__doc__
     )
-    # common options inherited from BaseConfigModel
-    common_group = parser.add_argument_group("Universal options")
-    attach_to_parser(common_group, BaseConfigModel)
-    # training options
-    train_group = parser.add_argument_group("Training options")
-    attach_to_parser(train_group, TrainingConfig, skip_fields=BASE_FIELDS)
-    # inference options
-    infer_group = parser.add_argument_group("Inference options")
-    attach_to_parser(infer_group, InferenceConfig, skip_fields=BASE_FIELDS)
+    #? NOTE: ensure cli_parse_args=False for both of these so that parser.parse_args() is called only once
+    infer_cli_src = CliSettingsSource(InferenceConfig, root_parser=infer_parser, cli_parse_args=False)
+    # parse the one level of args
     args = parser.parse_args(argv)
-    # now dispatch
-    if args.mode == "train":
-        cfg_mgr = ConfigManager(TrainingConfig, config_path=args.config_path)
-        cfg = cfg_mgr.config_model
-        return stage_training_pipeline(config=cfg)
-    else:
-        cfg_mgr = ConfigManager(InferenceConfig, config_path=args.config_path)
-        cfg = cfg_mgr.config_model
-        return stage_inference_pipeline(config=cfg)
+    cmd = args.command
+    try:
+        if cmd == "train":
+            cfg = CliApp.run(
+                TrainingConfig, cli_args=args, cli_settings_source=train_cli_src
+            )
+            stage_training_pipeline(config=cfg)
+        else:  # cmd == "infer"
+            cfg = CliApp.run(
+                InferenceConfig, cli_args=args, cli_settings_source=infer_cli_src
+            )
+            stage_inference_pipeline(config=cfg)
+    except ValidationError as e:
+        print("Configuration error:\n", e)
+        sys.exit(1)
+
 
 if __name__ == "__main__":
-    _ = main()
+    main()

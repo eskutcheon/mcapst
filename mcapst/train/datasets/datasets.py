@@ -1,13 +1,13 @@
 import os
 from glob import glob
-from typing import Dict, Union, Optional, Literal, Any, Callable, List
+from typing import Optional, Callable, List
 import random
 from PIL.Image import Image
 import torch
 from torch.utils.data import Dataset, IterableDataset
 import datasets # huggingface datasets
 import torchvision.transforms.v2 as TT
-import torchvision.io as IO
+from torchvision.io import read_image, ImageReadMode
 
 
 
@@ -60,7 +60,7 @@ class LocalImageDataset(BaseImageDataset):
 
     def __getitem__(self, idx):
         img_path = self.files[idx]
-        img = self.transform(IO.read_image(img_path, mode=IO.ImageReadMode.RGB))
+        img = self.transform(read_image(img_path, mode=ImageReadMode.RGB))
         #? NOTE: original CAP-VSTNet training scripts didn't use any masking during training, so don't bother supporting it here
         return {"img": img}
 

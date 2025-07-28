@@ -1,8 +1,6 @@
 from typing import Union, Tuple
 import torch
 import torch.nn.functional as F
-# helper class for mesh grid caching
-from mcapst.train.loss.loss_utils import MeshGridCache
 
 
 
@@ -25,6 +23,8 @@ class TemporalLoss(torch.nn.Module):
         """
         super(TemporalLoss, self).__init__()
         self.MSE = torch.nn.MSELoss()
+        # helper class for mesh grid caching
+        from mcapst.train.loss.loss_utils import MeshGridCache
         self.mesh_cache = MeshGridCache(max_size=8)
         self.use_fake_flow = use_fake_flow
         self.warp_flag = warp_flag
