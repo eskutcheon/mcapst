@@ -5,7 +5,7 @@ import torch
 # TODO: extract to a new logging file later
 from torch.utils.tensorboard import SummaryWriter
 # local imports
-from mcapst.train.config.config import TrainingConfig #, get_training_config_manager
+from mcapst.train.config.config import TrainingConfig
 
 
 #os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"  # to avoid fragmentation issues with CUDA memory allocation
@@ -21,7 +21,6 @@ class TrainerBase:
         if isinstance(config, dict):
             config = TrainingConfig(**config)
         self.config = config
-        self._validate_config()
         self._normalize_mode(mode = self.config.transfer_mode)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.current_iter = 0
@@ -37,13 +36,9 @@ class TrainerBase:
         from mcapst.train.loss.loss_utils import RunningMeanLoss
         self.mean_losses = RunningMeanLoss()
 
-
-    def _validate_config(self):
-        """ should be overridden by subclasses to validate config parameters for specific training tasks """
-        pass
-
     def _normalize_mode(self, mode: str):
         """ ensure self.config.transfer_mode is one of {'art', 'photo'} """
+        #? NOTE: this was also validated by the new pydantic config and could be removed but I'm just leaving it for now
         all_modes = list(TRANSFER_MODE_ALIASES.keys()) + list(TRANSFER_MODE_ALIASES.values())
         if mode not in TRANSFER_MODE_ALIASES.values():
             # Attempt to map from 'photorealistic' -> 'photo', etc.
@@ -109,6 +104,8 @@ class TrainerBase:
 class ImageTrainer(TrainerBase):
     def __init__(self, config: Union[TrainingConfig, Dict[str, Any]]):
         super().__init__(config)
+        if self.config.modality != "image":
+            raise ValueError(f"ImageTrainer only supports 'image' modality; got '{self.config.modality}'.")
         from mcapst.core.stylizers.image_stylizers import BaseImageStylizer
         # TODO: if I keep using stylizer classes in this way, I'll have to add some staging for choosing this or the MaskedImageStylizer class
         self.transfer_module = BaseImageStylizer(
@@ -119,10 +116,6 @@ class ImageTrainer(TrainerBase):
             train_mode=True
         )
         self.set_model_and_optimizer(self.transfer_module.revnet)
-
-    def _validate_config(self):
-        if self.config.modality != "image":
-            raise ValueError(f"ImageTrainer only supports 'image' modality; got '{self.config.modality}'.")
 
 
     # NOTE: for now, the way to call both the image and video stylizer classes' transform methods are the same, so I may be able to just stick with the base class
@@ -166,6 +159,8 @@ class VideoTrainer(TrainerBase):
         if config.loss_cfg.temporal_weight == 0:
             raise ValueError("Temporal weight must be greater than 0 for video training!")
         super().__init__(config)
+        if self.config.modality != "video":
+            raise ValueError(f"VideoTrainer only supports 'video' modality; got '{self.config.modality}'.")
         # using the BaseImageStylizer since the original implementation only generated fake optical flow data between unrelated images in a batch
             # eventually, I'll add a new data manager for batching video frames and generating real optical flow data in the same manner as it does now.
         # TODO: need to add some staging for choosing the stylizers (e.g. the MaskedImageStylizer class if use_segmentation is True)
@@ -182,9 +177,6 @@ class VideoTrainer(TrainerBase):
         # self.transfer_module = BaseVideoStylizer(
         self.set_model_and_optimizer(self.transfer_module.revnet)
 
-    def _validate_config(self):
-        if self.config.modality != "video":
-            raise ValueError(f"VideoTrainer only supports 'video' modality; got '{self.config.modality}'.")
 
     def train(self):
         #!! FIXME: align with the old implementation since now alpha_c and alpha_s are treated differently after my major refactor for inference
@@ -223,8 +215,7 @@ def stage_training_pipeline(config_path: Optional[str] = None, config: Optional[
         ```python -m mcapst.pipelines.train --mode training --config_path path/to/train_config.yaml```
     """
     if config is None:
-        # config_manager = get_training_config_manager(config_path=config_path)
-        # config: TrainingConfig = config_manager.config_model
+        # if config isn't provided, instantiate one from the optional config_path
         config = TrainingConfig(config_path=config_path)
     if config.modality == "image":
         trainer = ImageTrainer(config)

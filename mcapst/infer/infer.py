@@ -7,7 +7,7 @@ from torchvision.io import read_image, write_jpeg, ImageReadMode
 from torchvision.transforms.v2 import Compose, ToDtype, Lambda #, Resize
 # local imports
 #from .dispatcher import StyleTransferDispatcher
-from mcapst.infer.config.config import InferenceConfig #, get_inference_config_manager
+from mcapst.infer.config.config import InferenceConfig
 # from mcapst.core.utils.utils import ensure_file_list_format
 
 
@@ -244,9 +244,7 @@ def stage_inference_pipeline(config_path: Optional[str] = None, config: Optional
         ```python -m mcapst.pipelines.infer --mode inference --config_path path/to/infer_config.yaml```
     """
     if config is None:
-        # uses a InferenceConfigManager to parse user config and pass an object directly
-        # config_manager = get_inference_config_manager(config_path=config_path)
-        # config: InferenceConfig = config_manager.config_model
+        # if config isn't provided, instantiate one from the optional config_path
         config = InferenceConfig(config_path=config_path)
     # routes to the correct inference class based on modality (image or video)
     if config.modality == "image":

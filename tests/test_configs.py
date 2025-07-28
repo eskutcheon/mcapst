@@ -6,9 +6,8 @@ import pytest
 from pathlib import Path
 # from tempfile import TemporaryDirectory
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from mcapst.train.config.config import TrainingConfig #, get_training_config_manager
-from mcapst.infer.config.config import InferenceConfig #, get_inference_config_manager
-# from mcapst.core.utils.config_utils import ConfigManager
+from mcapst.train.config.config import TrainingConfig
+from mcapst.infer.config.config import InferenceConfig
 
 # Helpers to make dummy image files
 def make_dummy_images(dirpath: Path, count: int, ext: str = ".jpg"):
@@ -97,8 +96,6 @@ def test_training_config_via_yaml_and_cli(tmp_path, monkeypatch):
         f"--lr=2e-3",
         f"--train-iter=500"
     ])
-    #mgr = get_training_config_manager(str(yml))
-    #cfg = mgr.config_model
     cfg = TrainingConfig(config_path=yml) #, cli_args=sys.argv[1:])
     print("final instantiated config: ", cfg.model_dump())
     assert cfg.lr == pytest.approx(2e-3)
@@ -123,8 +120,6 @@ def test_inference_config_via_yaml_and_cli(tmp_path, monkeypatch):
         "--modality=video",
         "--max-size=512"
     ])
-    # mgr = get_inference_config_manager(str(yml))
-    # cfg = mgr.config_model
     cfg = InferenceConfig(config_path=yml) #, cli_args=sys.argv[1:])
     # print(cfg.model_dump())
     assert cfg.modality == "video"
@@ -145,8 +140,6 @@ def test_training_config_cli_only(tmp_path, monkeypatch):
         "--loss-cfg.style-weight=0.9",
         "--lr=1e-5"
     ])
-    # mgr = get_training_config_manager(None)
-    # cfg = mgr.config_model
     cfg = TrainingConfig() #cli_args=sys.argv[1:])
     assert cfg.data_cfg.use_local_data
     assert cfg.loss_cfg.style_weight == pytest.approx(0.9)
@@ -162,8 +155,6 @@ def test_inference_config_cli_only(tmp_path, monkeypatch):
         f"--style-paths={sty}",
         "--alpha-s=0.5",
     ])
-    # mgr = get_inference_config_manager(None)
-    # cfg = mgr.config_model
     cfg = InferenceConfig() #cli_args=sys.argv[1:])
     assert len(cfg.input_paths) == 2
     assert len(cfg.style_paths) == 1

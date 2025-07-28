@@ -1,6 +1,5 @@
 # mcapst/__main__.py
 
-# from mcapst.core.utils.config_utils import ConfigManager, BaseConfigModel, attach_to_parser, BASE_FIELDS
 import sys
 from argparse import ArgumentParser
 from pydantic import ValidationError
@@ -20,15 +19,23 @@ def main(argv=None):
     subparsers = parser.add_subparsers(dest="command", required=True)
     # training options' subparser
     train_parser = subparsers.add_parser(
-        "train", help="Run training", description=TrainingConfig.__doc__
+        "train", prog="mcapst", usage="%(prog)s {train|.train} [OPTIONS]",
+        help="Run training", description=TrainingConfig.__doc__
     )
     # basically does train_cli_src.add_argument(...) for every field in TrainingConfig
-    train_cli_src = CliSettingsSource(TrainingConfig, root_parser=train_parser, cli_parse_args=False)
+    train_cli_src = CliSettingsSource(
+        TrainingConfig, root_parser=train_parser,
+        cli_parse_args=False, cli_hide_none_type=True, cli_prog_name=train_parser.usage, cli_avoid_json=True
+    )
     infer_parser = subparsers.add_parser(
-        "infer", help="Run inference", description=InferenceConfig.__doc__
+        "infer", prog="mcapst", usage="%(prog)s {infer|.infer} [OPTIONS]",
+        help="Run inference", description=InferenceConfig.__doc__
     )
     #? NOTE: ensure cli_parse_args=False for both of these so that parser.parse_args() is called only once
-    infer_cli_src = CliSettingsSource(InferenceConfig, root_parser=infer_parser, cli_parse_args=False)
+    infer_cli_src = CliSettingsSource(
+        InferenceConfig, root_parser=infer_parser,
+        cli_parse_args=False, cli_hide_none_type=True, cli_prog_name=train_parser.usage, cli_avoid_json=True
+    )
     # parse the one level of args
     args = parser.parse_args(argv)
     cmd = args.command
@@ -42,7 +49,7 @@ def main(argv=None):
             cfg = CliApp.run(
                 InferenceConfig, cli_args=args, cli_settings_source=infer_cli_src
             )
-            stage_inference_pipeline(config=cfg)
+            _ = stage_inference_pipeline(config=cfg)
     except ValidationError as e:
         print("Configuration error:\n", e)
         sys.exit(1)

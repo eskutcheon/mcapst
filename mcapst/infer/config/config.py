@@ -71,8 +71,7 @@ class InferenceConfig(BaseConfigModel):
             Returns:
                 - a flat list of Path objects for valid files
         """
-        # handling possible JSON-encoded lists, which shouldn't happen to begin with so I still need to figure out why it does
-        print("input path value: ", str(v))
+        # handling possible JSON-encoded lists, which shouldn't happen to begin with so I still need to figure out where that comes from
         if isinstance(v, (str, Path)):
             v = str(v)
             if v.strip().startswith('["') and v.strip().endswith('"]'):
@@ -178,8 +177,3 @@ class InferenceConfig(BaseConfigModel):
             else: # if it's a non-default checkpoint and the user just passed an invalid path, raise an error
                 raise FileNotFoundError(f"Checkpoint at '{self.ckpt_path}' does not exist. Please provide a valid path or download the default checkpoint.")
         return self
-
-
-# def get_inference_config_manager(config_path: Optional[str] = None) -> ConfigManager:
-#     """ Returns a ConfigManager for the InferenceConfig model """
-#     return ConfigManager(InferenceConfig, config_path, description="Inference configuration")

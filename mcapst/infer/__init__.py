@@ -6,7 +6,6 @@ from .infer import (
 )
 from .config.config import (
     InferenceConfig,
-    #get_inference_config_manager
 )
 
 __all__ = [
@@ -14,5 +13,4 @@ __all__ = [
     "ImageInferenceOrchestrator",
     "VideoInferenceOrchestrator",
     "InferenceConfig",
-    #"get_inference_config_manager"
 ]

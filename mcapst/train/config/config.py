@@ -11,10 +11,14 @@ from mcapst.core.utils.config_utils import BaseConfigModel #, ConfigManager
 
 
 
-
 SUPPORTED_IMG_EXTENSIONS = [".jpg", ".jpeg", ".png", ".bmp", ".tiff"]
 # default VGG19 checkpoint path (where to look for or save it) and the Google Drive ID to download from if the latter
 DEFAULT_VGG_CKPT = ("checkpoints/vgg_normalised.pth", "1HChq_ab5DmdUMDqO_5KTQhwoOw4f5Rhc")
+DEFAULT_HF_DATASETS = {
+    "art": {"train_content": "bitmind/MS-COCO-unique-256", "train_style": "huggan/wikiart"},
+    "photo": {"train_content": "bitmind/MS-COCO-unique-256", "train_style": "bitmind/MS-COCO-unique-256"}
+}
+
 
 # encapsulated dataclasses dedicated to specific groups of configuration attributes
 class LossConfig(BaseModel):
@@ -48,9 +52,9 @@ class LocalDatasetConfig(BaseModel):
     use_local_data: Literal[True] = Field(
         True, description="Whether to use local directories for train_content & train_style."
     )
-    streaming: bool = Field(False, description="Unused when use_local_data=True.")
-    train_content: DirectoryPath = Field(..., description="Local directory of content images for training.")
-    train_style: DirectoryPath = Field(..., description="Local directory of style images for training.")
+    streaming: bool = Field(False, description="Whether to stream from HF in streaming mode (unused when `use-local-data`).")
+    train_content: DirectoryPath = Field(..., description="Local directory of content images for training (or HF dataset if not `use-local-data`).")
+    train_style: DirectoryPath = Field(..., description="Local directory of style images for training (or HF dataset if not `use-local-data`).")
     batch_size: PositiveInt = Field(4, description="Number of samples per batch.")
     new_size: int = Field(512, ge=128, description="Resize images to this size during training.")
 
@@ -118,22 +122,6 @@ class TrainingConfig(BaseConfigModel):
         description="Path to the checkpoint file to resume training from; Otherwise defaults to a new checkpoint based on datetime."
     )
 
-    # @field_validator('data_cfg', 'loss_cfg', mode='before')
-    # def coerce_nested_cfg(cls, v, info: ValidationInfo) -> Union[DatasetConfig, LossConfig]:
-    #     # ensure that data_cfg and loss_cfg are instances of the respective dataclasses if they're passed as dictionaries
-    #     if isinstance(v, dict):
-    #         if info.field_name == 'data_cfg':
-    #             try:
-    #                 print("data_cfg dictionary: ", v)
-    #                 return DatasetConfig.model_validate(v)
-    #             except ValidationError as e:
-    #                 raise ValueError(f"Invalid data_cfg: {e}") from e
-    #         elif info.field_name == 'loss_cfg':
-    #             return LossConfig(**v)
-    #     elif not isinstance(v, (LocalDatasetConfig, HFDatasetConfig, LossConfig)):
-    #         raise TypeError(f"{info.field_name} must be a DatasetConfig or LossConfig instance or a dictionary")
-    #     return v
-
     @field_validator("data_cfg", mode="before")
     def _coerce_data_cfg_bool(cls, v):
         """ CLI may pass {'use_local_data': 'True'} (a str), but the union discriminator needs a real bool. """
@@ -152,6 +140,22 @@ class TrainingConfig(BaseConfigModel):
             raise ValueError(f"ckpt_interval ({self.ckpt_interval}) must be less than or equal to train_iter ({self.train_iter}).")
         return self
 
+    @model_validator(mode="after")
+    def _set_default_hf_datasets(self) -> DatasetConfig:
+        """ Set default HuggingFace datasets based on transfer mode if not provided """
+        if isinstance(self.data_cfg, HFDatasetConfig):
+            from mcapst.core.utils.utils import test_if_valid_hf_dataset
+            for attr in ("train_content", "train_style"):
+                if getattr(self.data_cfg, attr) is None:
+                    transfer_mode = self.transfer_mode
+                    try:
+                        setattr(self.data_cfg, attr, DEFAULT_HF_DATASETS[transfer_mode][attr])
+                    except KeyError:
+                        raise ValueError(f"Default Hugging Face datasets not found with registry keys '{transfer_mode}/{attr}'.")
+                    if not test_if_valid_hf_dataset(getattr(self.data_cfg, attr)):
+                        raise ValueError(f"Default Hugging Face dataset '{getattr(self.data_cfg, attr)}' is invalid.")
+        return self
+
     @model_validator(mode='after')
     def cross_validate(self):
         # video must have temporal weight >0
@@ -160,7 +164,3 @@ class TrainingConfig(BaseConfigModel):
             self.loss_cfg.temporal_weight = 20.0
         return self
 
-
-# def get_training_config_manager(config_path: Optional[str] = None) -> ConfigManager:
-#     """ Returns a ConfigManager for the TrainingConfig model """
-#     return ConfigManager(TrainingConfig, config_path, description="Training configuration")

@@ -1,5 +1,4 @@
-import os
-from glob import glob
+import pathlib
 from typing import Optional, Callable, List
 import random
 from PIL.Image import Image
@@ -18,7 +17,6 @@ class BaseImageDataset(Dataset):
     """ Base class for both HuggingFace and local image datasets that includes the optional Matting Laplacian computation """
     def __init__(self, transform: Optional[Callable] = None):
         super().__init__()
-        #! remove hardcoding
         DEFAULT_RESIZE_DIM = 256
         # rename to transforms or preprocessor
         self.transform = transform if transform else TT.Compose([
@@ -45,13 +43,12 @@ class LocalImageDataset(BaseImageDataset):
     def _scan_files(self, root, recursive):
         """ Scans the directory for image files and populates self.files """
         self.files: List[str] = []
-        pattern = "**/*" if recursive else "*"
-        # Gather all valid image files
-        # TODO: replace glob and os with pathlib.Path.glob for cutting down imports
-        for f in glob(os.path.join(root, pattern), recursive=recursive):
-            ext = os.path.splitext(f)[1].lower()
-            if ext in ALLOWED_EXTS and os.path.isfile(f):
-                self.files.append(f)
+        p = pathlib.Path(root)
+        path_iter = p.rglob('*') if recursive else p.glob('*')
+        # gather all valid image files
+        for pth in path_iter:
+            if pth.is_file() and pth.suffix.lower() in ALLOWED_EXTS:
+                self.files.append(str(pth))
         if not self.files:
             raise FileNotFoundError(f"No image files found in {root} (recursive={recursive}).")
 
@@ -112,13 +109,13 @@ class HFStreamingIterable(IterableDataset):
         # avoiding using .with_format("torch") like the other classes because streaming + with_format has issues
         self.raw_dataset = datasets.load_dataset(self.dataset_name, split=self.split, streaming=True)
 
-    def _set_transforms(self, transform: TT.Compose = None):
-        DEFAULT_SIZE = 256
+    def _set_transforms(self, transform: Optional[TT.Compose] = None):
         conversion_func = TT.Lambda(lambda x: TT.functional.pil_to_tensor(x) if isinstance(x, Image) else x)
         if transform:
             transform.transforms.insert(0, conversion_func)
             self.transform = transform
         else:
+            DEFAULT_SIZE = 256
             self.transform = transform if transform else TT.Compose([
                 conversion_func,
                 TT.Resize((DEFAULT_SIZE, DEFAULT_SIZE)),
