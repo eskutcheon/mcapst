@@ -3,8 +3,9 @@ import functools
 import torch
 # local imports
 from .base_stylizers import BaseStylizer, StylizerArgs
-from ..models.containers import FeatureContainer, StyleWeights
+from ..models.containers import FeatureContainer #, StyleWeights
 from ..utils.video_processor import VideoProcessor
+from .stylizer_builder import process_style_sources, prep_single_image
 
 
 
@@ -17,8 +18,8 @@ def transform_preprocess2(func: Callable) -> Callable:
         cls: BaseStylizer,
         sample: Union[torch.Tensor, Dict[str, torch.Tensor]],
         style_paths: Union[str, List[str], List[torch.Tensor], torch.Tensor],
-        alpha_c: Union[float, None] = None,
-        alpha_s: Union[float, Iterable[float]] = None,
+        alpha_c: Union[float, Iterable[float]],
+        alpha_s: Union[float, Iterable[float]],
         # should include postprocessor back in as an argument after I think over how the stylizers' structure may change
         #postprocessor: Optional[Callable] = None,
         #mask_paths: Union[str, List[str], None] = None,
@@ -34,14 +35,15 @@ def transform_preprocess2(func: Callable) -> Callable:
             #mask_paths=mask_paths,
             **kwargs
         )
+        # TODO: REMOVE path processing next
         # Safeguards for ensuring proper formatting of `args.style_paths` + converting to batch tensor
-        args.style_paths = cls.process_style_sources(args.style_paths)
+        args.style_paths = process_style_sources(args.style_paths, cls.max_size, down_scale=cls.revnet.down_scale)
         # handle the weights using initialization of StyleWeights objects
         # TODO: ensure proper types upstream and add error checking here
         #content_batch_size = sample.shape[0] if isinstance(sample, torch.Tensor) else sample["img"].shape[0]
-        args.alpha_c = StyleWeights(args.alpha_c, "content", num_items=cls.max_batch_size)
+        #args.alpha_c = StyleWeights(args.alpha_c, "content", num_items=cls.max_batch_size)
         style_batch_size = args.style_paths.shape[0]
-        args.alpha_s = StyleWeights(args.alpha_s, "style", num_items=style_batch_size)
+        #args.alpha_s = StyleWeights(args.alpha_s, "style", num_items=style_batch_size)
         assert len(args.alpha_s) == style_batch_size, \
             f"ERROR: number of style weights ({len(args.alpha_s)}) must match the number of style images ({style_batch_size})!"
         # construct the postprocessor if applicable
@@ -52,6 +54,7 @@ def transform_preprocess2(func: Callable) -> Callable:
         supported_args = getattr(cls, "supported_args", [])
         if not supported_args:
             raise AttributeError(f"Class {cls.__class__.__name__} must define `supported_args`.")
+        # take only supported arguments from the StylizerArgs object's attributes
         filtered_args = args.as_dict(supported_args)
         return func(cls, sample, **filtered_args)
     return wrapper
@@ -76,21 +79,21 @@ class BaseVideoStylizer(BaseStylizer):
         self.max_batch_size = 4
 
     # FIXME: the `style_paths` argument should be brought in line with the ImageStylizer classes
-    # TODO: overall need to address a lot of problems with the way the stylizers are set up
-    def stylize_video(self, frames: torch.Tensor, style_paths: List[str], alpha_c: StyleWeights, alpha_s: StyleWeights, cmask=None, smask=None):
+    def stylize_video(
+        self,
+        frames: torch.Tensor,
+        style_paths: List[str],
+        alpha_c: Union[float, Iterable[float]],
+        alpha_s: Union[float, Iterable[float]],
+        cmask=None,
+        smask=None
+    ) -> torch.Tensor:
         """ Applies style transfer to video frames and saves the result as a video file.
             Args:
                 frames: Tensor of video frames with shape (T, C, H, W).
                 style_paths: Style image template path(s)
         """
         style_images = style_paths #[]
-        # if all(isinstance(p, str) for p in style_paths):
-        #     print("style paths: ", style_paths)
-        #     style_images = [self.preprocess(IO.read_image(p, IO.ImageReadMode.RGB).pin_memory()) for p in style_paths]
-        # elif all(isinstance(p, torch.Tensor) for p in style_paths):
-        #     style_images = [self.preprocess(p) for p in style_paths]
-        # else:
-        #     raise ValueError("`style_paths` must be a list of path-like strings or a list of tensors!")
         with torch.no_grad(): # forward inference of self.revnet acts as the feature encoder
             z_c = self.revnet(frames, forward=True)
             z_s = self.revnet(style_images, forward=True)
@@ -99,7 +102,7 @@ class BaseVideoStylizer(BaseStylizer):
         style_feat = FeatureContainer(z_s, "style", alpha_s, smask, max_size=self.max_size)
         # Initialize video writer
         with torch.no_grad():
-            processed_frames = self.stylize(content_feat, style_feat).clamp(0, 1).cpu()
+            processed_frames = self.stylize(content_feat, style_feat).clamp(0, 1)
         # write stylized frames to the new video file
         return processed_frames
 
@@ -108,13 +111,12 @@ class BaseVideoStylizer(BaseStylizer):
     def transform(
         self,
         sample: Union[str, torch.Tensor, Dict[str, torch.Tensor]],
-        style_paths: Union[str, List[str]],
+        style_paths: torch.Tensor, #Union[str, List[str]],
         # TODO: replace `use_blending` with a higher level function call that will just add them to the postprocessor when calling this method
         #use_blending: bool,
         alpha_c: Union[float, None],
         alpha_s: Union[float, Iterable[float]],
-        #mask_paths: Union[str, List[str], None],
-        # ! should definitely be False by default later, with caching enabled by default
+        #! REMOVE last two args LATER
         save_output: bool = True,
         output_path: Optional[str] = None
     ):
@@ -124,13 +126,13 @@ class BaseVideoStylizer(BaseStylizer):
         # NOTE: no need to check whether sample is a string or tensor since the VideoReader object can accept either as src
         vid_processor = VideoProcessor(content_vid, target_fps=self.fps, backend="torchvision")
         vid_generator = vid_processor.frame_generator(batch_size = self.max_batch_size)
-        # NOTE: decorator turns alpha_c and alpha_s into containers.StyleWeights objects
-        style_args = {"style_paths": style_paths, "alpha_c": alpha_c, "alpha_s": alpha_s}
         stylized_video = []
-        # TODO: still need to find a more quantized way to do this
+        # TODO: still need to find a more efficient way to do this (i.e., moving chunks to a disk cache and finally joining them in an iterated fashion)
         for batch in vid_generator:
-            batch = self.preprocess(batch).squeeze(0)
-            pastiche: torch.Tensor = self.stylize_video(batch, **style_args).clamp(0, 1)
+            batch = prep_single_image(batch, self.max_size, self.revnet.down_scale).squeeze(0).clamp(0, 1)
+            if batch.device != style_paths.device:
+                style_paths = style_paths.to(device=batch.device)
+            pastiche = self.stylize_video(batch, style_paths, alpha_c, alpha_s).clamp(0, 1)
             stylized_video.append(pastiche.to(device="cpu"))
         pastiche = torch.cat(stylized_video, dim=0)
         if save_output:
@@ -141,27 +143,34 @@ class BaseVideoStylizer(BaseStylizer):
 
 
 # TODO: add a new class for masked video stylization
-class MaskedVideoStylizer(BaseVideoStylizer):
-    def __init__(self, *args, **kwargs):
-        raise NotImplementedError("Masked video stylization is not yet implemented.")
-        #super().__init__(*args, **kwargs)
+# class MaskedVideoStylizer(BaseVideoStylizer):
+#     def __init__(self, *args, **kwargs):
+#         raise NotImplementedError("Masked video stylization is not yet implemented.")
+#         #super().__init__(*args, **kwargs)
 
-    def stylize_video(self, frames: torch.Tensor, style_paths: List[str], alpha_c: StyleWeights, alpha_s: StyleWeights, cmask=None, smask=None):
-        """ Applies style transfer to video frames and saves the result as a video file.
-            Args:
-                frames: Tensor of video frames with shape (T, C, H, W).
-                style_paths: Style image template path(s)
-        """
-        raise NotImplementedError
+#     def stylize_video(
+#         self,
+#         frames: torch.Tensor,
+#         style_paths: List[str],
+#         alpha_c: Union[float, Iterable[float]],
+#         alpha_s: Union[float, Iterable[float]],
+#         cmask=None, smask=None
+#     ):
+#         """ Applies style transfer to video frames and saves the result as a video file.
+#             Args:
+#                 frames: Tensor of video frames with shape (T, C, H, W).
+#                 style_paths: Style image template path(s)
+#         """
+#         raise NotImplementedError
 
-    #~ This one will be a later addition after tweaking, but I'm incoporating the label remapping while knocking out the MaskedImageStylizer class:
-        #~ main difference between the two (ref: old video_transfer.py script) is that style masks are remapped once and content masks are remapped for each frame
-    def transform(
-        self,
-        sample: Union[str, torch.Tensor, Dict[str, torch.Tensor]],
-        style_paths: Union[str, List[str]],
-        alpha_c: Union[float, None],
-        alpha_s: Union[float, Iterable[float]],
-        #mask_paths: Union[str, List[str], None],
-    ):
-        raise NotImplementedError
+#     #~ This one will be a later addition after tweaking, but I'm incoporating the label remapping while knocking out the MaskedImageStylizer class:
+#         #~ main difference between the two (ref: old video_transfer.py script) is that style masks are remapped once and content masks are remapped for each frame
+#     def transform(
+#         self,
+#         sample: Union[str, torch.Tensor, Dict[str, torch.Tensor]],
+#         style_paths: Union[str, List[str]],
+#         alpha_c: Union[float, None],
+#         alpha_s: Union[float, Iterable[float]],
+#         #mask_paths: Union[str, List[str], None],
+#     ):
+#         raise NotImplementedError

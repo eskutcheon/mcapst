@@ -105,7 +105,7 @@ class ImageInferenceOrchestrator(BaseInferenceOrchestrator):
 
     def _load_stylizer(self):
         """ selects either BaseImageStylizer or MaskedImageStylizer depending on config.use_segmentation """
-        from mcapst.core.stylizers.image_stylizers import BaseImageStylizer, MaskedImageStylizer
+        from mcapst.core.stylizers.image_stylizers import BaseImageStylizer #, MaskedImageStylizer
         mode = self.config.transfer_mode  # "art" or "photo"
         ckpt_path = self.config.ckpt_path
         max_size = self.config.max_size
@@ -113,7 +113,8 @@ class ImageInferenceOrchestrator(BaseInferenceOrchestrator):
             # Example: optionally pass in segmentation checkpoint if you have one
             # NOTE: # seg_model_ckpt may be a path to a segmentation checkpoint
                 # TODO: need to add this to the config
-            return MaskedImageStylizer(mode=mode, ckpt=ckpt_path, max_size=max_size, seg_model_ckpt=None, reg_method="ridge")
+            # return MaskedImageStylizer(mode=mode, ckpt=ckpt_path, max_size=max_size, seg_model_ckpt=None, reg_method="ridge")
+            raise NotImplementedError("MaskedImageStylizer is not yet implemented.")
         else:
             # TODO: need to refactor how these stylizers are loaded to allow users to pass in custom postprocessors and other arguments
             return BaseImageStylizer(mode=mode, ckpt=ckpt_path, max_size=max_size, postprocessor=None, reg_method="ridge", train_mode=False)
@@ -124,7 +125,7 @@ class ImageInferenceOrchestrator(BaseInferenceOrchestrator):
         input_files = kwargs.get("input_files", self.config.input_paths)
         #input_files = ensure_file_list_format(input_files) #? NOTE: replaced with PathList (but may need to account for other entry points later)
         # handle remaining arguments in the same way
-        style_files = kwargs.get("style_paths", [os.path.realpath(r"data/style/01.jpg")])
+        style_files = kwargs.get("style_paths", self.config.style_paths)
         #style_files = ensure_file_list_format(style_files)
         alpha_c = kwargs.get("alpha_c", self.config.alpha_c)
         alpha_s = kwargs.get("alpha_s", self.config.alpha_s)
@@ -197,7 +198,7 @@ class VideoInferenceOrchestrator(BaseInferenceOrchestrator):
         # if user passed `input_files` explicitly, use it; otherwise fallback to config.input_paths
         video_list = kwargs.get("video_list", self.config.input_paths)
         # video_list = ensure_file_list_format(video_list) # replaced with PathList (but may need to account for other entry points later)
-        style_files = kwargs.get("style_paths", [os.path.realpath(r"data/style/01.jpg")])
+        style_files = kwargs.get("style_paths", self.config.style_paths)
         #style_files = ensure_file_list_format(style_files)
         alpha_c = kwargs.get("alpha_c", self.config.alpha_c)
         alpha_s = kwargs.get("alpha_s", self.config.alpha_s)

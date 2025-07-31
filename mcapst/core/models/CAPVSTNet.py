@@ -11,7 +11,7 @@ from .cWCT import cWCT
 
 
 
-class CAPVSTNet(object):
+class CAPVSTNet:
     def __init__(self, eps:float = 2e-5, max_size:int = 1280, use_double:bool = True, train_mode:bool = False, reg_method: str = "ridge"):
         """
             :param eps: Small constant for numerical stability in Cholesky decomposition - passed to cWCT constructor
@@ -80,7 +80,6 @@ class CAPVSTNet(object):
         target_feature = content_feat.feat.clone()    # [B, N, H_c*W_c]
         # ~ IDEA: might be easier to iterate over the batch dimension (less common occurrence anyway) and try to do all labels at once
         # From here on, assume that content_feat's batch dimension will only ever be 1 - need to edit this within all comments
-
         for label in label_set:
             #content_indices: torch.Tensor = torch.nonzero(content_feat.mask.squeeze(0))    # of shape [num_nonzero, [1,C,H*W]]
             #style_indices: torch.Tensor = torch.nonzero(style_feat.mask)        # of shape [num_nonzero, [B,C,H*W]]
@@ -162,7 +161,7 @@ class CAPVSTNet(object):
         content_feat = feature_dict["content"].feat
         B_c, N, _ = content_feat.shape  # Unpack content tensor shape [B_c, N, H_c*W_c]
         alpha_c = feature_dict["content"].alpha[0]
-        alpha_s = feature_dict["style"].alpha.weights
+        alpha_s = feature_dict["style"].alpha
         # get Cholesky decomposition for content features
         c_mean, _, Lc = self.cwct.get_feature_covariance_and_decomp(content_feat, invert=False, update_mean=False)  # [B_c, N] and [B_c, N, N]
         Lc_inv = torch.inverse(Lc)

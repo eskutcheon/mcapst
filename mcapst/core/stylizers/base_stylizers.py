@@ -1,15 +1,17 @@
 from typing import Literal, List, Dict, Callable, Iterable, Union, Tuple, Optional
 import functools
 import os
+from pathlib import Path
 import torch
-import torchvision.transforms.v2 as TT
-import torchvision.io as IO
+# import torchvision.transforms.v2 as TT
+# import torchvision.io as IO
 # local imports
 from ..models.RevResNet import RevResNet
 from ..models.CAPVSTNet import CAPVSTNet
-from ..models.containers import FeatureContainer, StyleWeights, StylizerArgs
-from ..utils.utils import ensure_file_list_format
-from ..utils.img_utils import get_scaled_dims, ensure_batch_tensor, iterable_to_tensor
+from ..models.containers import FeatureContainer, StylizerArgs
+# from ..utils.utils import ensure_file_list_format
+from ..utils.img_utils import get_scaled_dims, ensure_batch_tensor, downscaling_resize #, iterable_to_tensor
+from .stylizer_builder import process_style_sources
 
 
 # TODO: this whole file really needs to be cleaned up while eliminating redundant code
@@ -31,6 +33,7 @@ def transform_preprocess(func: Callable) -> Callable:
         #mask_paths: Union[str, List[str], None] = None,
         **kwargs
     ) -> torch.Tensor:
+        #~ in the near future, this will be replaced by a dynamically-constructed preprocessor; the use of a pydantic StylizerParams object is TBD
         # construct the StylizerArgs object from the received arguments
         args = StylizerArgs(
             style_paths=style_paths,
@@ -40,18 +43,7 @@ def transform_preprocess(func: Callable) -> Callable:
             **kwargs
         )
         # Safeguards for ensuring proper formatting of `args.style_paths` + converting to batch tensor
-        args.style_paths = cls.process_style_sources(args.style_paths)
-        # if isinstance(sample, str) and os.path.isfile(sample):
-        #     # if sample is a path-like string, read the image and convert it to a tensor
-        #     sample = IO.read_image(sample, mode=IO.ImageReadMode.RGB)
-        # handle the weights using initialization of StyleWeights objects
-        # TODO: ensure proper types upstream and add error checking here
-        content_batch_size = sample.shape[0] if isinstance(sample, torch.Tensor) else sample["img"].shape[0]
-        args.alpha_c = StyleWeights(args.alpha_c, "content", num_items=content_batch_size)
-        style_batch_size = args.style_paths.shape[0]
-        args.alpha_s = StyleWeights(args.alpha_s, "style", num_items=style_batch_size)
-        assert len(args.alpha_s) == style_batch_size, \
-            f"ERROR: number of style weights ({len(args.alpha_s)}) must match the number of style images ({style_batch_size})!"
+        args.style_paths = process_style_sources(args.style_paths, cls.max_size, down_scale=cls.revnet.down_scale)
         # construct the postprocessor if applicable
         postprocessor = args.construct_postprocessor()
         if postprocessor:
@@ -65,16 +57,14 @@ def transform_preprocess(func: Callable) -> Callable:
     return wrapper
 
 
-"""
-    ? NOTE on use_segmentation:
-        - [x] going to have to deal with SegLabelMapper conversion for tensors later
-        - [ ] also, I could potentially move the label filtering in cWCT.get_masked_target_features to an earlier preprocessing step
-            in `stylize_from_images`,
-        - [ ] still need to add error checking for the case where one mask is None and another isn't
-"""
-
-def get_default_revnet_args(mode: Literal["photo", "art"]):
-    return {
+def initialize_revnet_model(mode: Literal["photo", "art"], device="cuda") -> RevResNet:
+    """ Initializes a Reversible Residual Network model based on the specified mode.
+        Args:
+            mode (str): Mode of the network, either 'photo' or 'art'.
+        Returns:
+            RevResNet: The initialized reversible network.
+    """
+    revnet_args = {
         "nBlocks": [10, 10, 10],
         "nStrides": [1, 2, 2],
         "nChannels": [16, 64, 256],
@@ -83,39 +73,31 @@ def get_default_revnet_args(mode: Literal["photo", "art"]):
         "hidden_dim": 16 if mode == "photo" else 64,
         "sp_steps": 2 if mode == "photo" else 1,
     }
-
-def initialize_revnet_model(mode, device="cuda"):
-    """ Initializes a Reversible Residual Network model based on the specified mode.
-        Args:
-            mode (str): Mode of the network, either 'photo' or 'art'.
-        Returns:
-            RevResNet: The initialized reversible network.
-    """
-    if "photo" in mode:
-        mode = "photo"
-    elif "art" in mode:
-        mode = "art"
-    else:
-        raise ValueError(f"ERROR: only 'photo' and 'art' (or 'photorealistic' or 'artistic') accepted for 'mode' parameter; got {mode}")
-    revnet_args = get_default_revnet_args(mode)
     return RevResNet(**revnet_args).to(device=device)
 
 
 
-class BaseStylizer(object):
+class BaseStylizer:
     def __init__(self,
-                 mode: Literal["photo", "art"], # a class instance can use only (mutually exclusively) photorealistic or artistic style transfer modes
+                 mode: Literal["photo", "art"], # a class instance can use only use photorealistic or artistic style transfer modes
                  ckpt: str,                     # path to a Reversible Residual Network pre-trained model checkpoint
                  max_size: int,                 # maximum size to restrict both content and style images
                  postprocessor: Callable|None = None,
                  reg_method: str = "ridge",     # regularization method to apply to the output (if any)
                  train_mode: bool = False):
+        mode = {"photorealistic": "photo", "artistic": "art"}.get(mode, mode)
         if mode not in ["photo", "art"]:
             raise ValueError(f"ERROR: only 'photo' and 'art' accepted for 'mode' parameter; got {mode}")
         self.mode = mode
         self.max_size = max_size
         self.device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # ? NOTE: should decide later whether to include the network parameters hardcoded in _set_revnet should be passed from an augment_cfg object (via policy managers)
+        # TODO: might want to move revnet to CAP-VSTNet, simplify all inputs, and have stylizers just handle staging, preprocessing, and postprocessing
+            # stylizers can be constructed along with each of these components in factories/builders, and revnet checkpointing can be done by functions
+            # CAP-VSTNet could be a torch.nn.Module instance and treating it like one while containing the RevResNet could be helpful
+            # BUT that could make it more difficult to use inference like a training-time augmentation - need to rethink other ways
+                # that we could use it as an augmentation in parallel like we did with the old `StyleTransferDispatcher`
+                # - then I have to consider how we can share weights (maybe with torch.nn.DataParallel); sharing weights is the main issue, but wrapping it could solve the issue
         self.revnet = self._set_revnet(mode, ckpt)
         if train_mode:
             self.revnet.train()
@@ -125,7 +107,7 @@ class BaseStylizer(object):
         #if postprocessor is not None:
         self.postprocessor = postprocessor
 
-    def _set_revnet(self, mode: str, ckpt_path: str = None):
+    def _set_revnet(self, mode: Literal["photo", "art"], ckpt_path: str = None):
         """ Sets the reversible network based on the specified mode.
             Args:
                 mode (str): Mode of the network, either 'photo' or 'art'.
@@ -133,7 +115,7 @@ class BaseStylizer(object):
                 RevResNet: The initialized reversible network
         """
         revnet = initialize_revnet_model(mode, device=self.device)
-        if isinstance(ckpt_path, str) and os.path.exists(ckpt_path):
+        if isinstance(ckpt_path, (str, Path)) and os.path.exists(ckpt_path):
             self._load_revnet_from_ckpt(revnet, ckpt_path)
         return revnet
 
@@ -144,60 +126,9 @@ class BaseStylizer(object):
             Returns:
                 RevResNet: The initialized reversible network
         """
-        state_dict = torch.load(ckpt_path, weights_only=True, map_location=self.device)
-        revnet.load_state_dict(state_dict['state_dict'])
+        checkpoint = torch.load(ckpt_path, weights_only=True, map_location=self.device)
+        revnet.load_state_dict(checkpoint['state_dict'])
         return revnet
-
-    def preprocess(self, img: torch.Tensor):
-        """ preprocess input tensor - move to device, convert to float32, ensure batching, resize, and ensure pixel range [0,1] """
-        if not img.is_cuda:
-            img = img.to(device=self.device)
-        img = TT.functional.to_dtype(img, dtype=torch.float32, scale=True)
-        img = self._resize(img).clamp(0,1)
-        return img
-
-    # ? NOTE: think this might be logically the same as the resize code I have written in a script on my laptop, with the exception of using down_scale
-    def _resize(self, img: torch.Tensor, use_downscale=True):
-        """ scale img so that its longest dimension <= max_size and again by a constant factor for input into the reversible network for multi-scale feature extraction """
-        img = ensure_batch_tensor(img)
-        H, W = img.shape[-2:]
-        H_new, W_new = get_scaled_dims(img, self.max_size)
-        down_scale = self.revnet.down_scale
-        # Adjust to make dimensions multiples of down_scale - usually 4 for nStrides = [1, 2, 2]
-        if use_downscale and down_scale is not None and (H_new % down_scale != 0 or W_new % down_scale != 0):
-            H_new = (H_new//down_scale)*down_scale # same as H -= (H % down_scale) essentially
-            W_new = (W_new//down_scale)*down_scale
-        # if the dimensions have changed, resize the img tensor
-        if H != H_new or W != W_new:
-            return TT.functional.resize(img, [H_new, W_new], TT.InterpolationMode.BICUBIC, antialias=True)
-        else:
-            return img
-
-    def process_style_sources(self, style_paths: Union[str, List[str], List[torch.Tensor], torch.Tensor]) -> torch.Tensor:
-        # * NOTE: this is a method that should be called before the transform_preprocess decorator is applied to the stylize_from_images method
-        if issubclass(type(style_paths), torch.Tensor):
-            return self.preprocess(style_paths) # return a resized and preprocessed tensor
-        ### or if not a tensor, but an iterable (list) of tensors, collate them into a batch tensor
-        elif isinstance(style_paths, Iterable) and all(isinstance(p, torch.Tensor) for p in style_paths):
-            return iterable_to_tensor([self.preprocess(p) for p in style_paths], self.max_size) # return a resized and preprocessed batch tensor
-        ### if style_paths is a string or iterable (typically list) of strings, load the style images from disk
-        elif isinstance(style_paths, str) or (isinstance(style_paths, Iterable) and all(isinstance(p, str) for p in style_paths)):
-            return self.load_styles_from_disk(style_paths)
-        else:
-            raise ValueError("`style_paths` must be str, `torch.Tensor`, list of path-like strings, or a list of tensors!")
-
-    def load_styles_from_disk(self, style_paths: Union[str, List[str], List[torch.Tensor], torch.Tensor]):
-        """ Load style images from the specified paths. """
-        if isinstance(style_paths, str):
-            style_paths = ensure_file_list_format(style_paths)
-        elif not (isinstance(style_paths, Iterable) and all(isinstance(p, str) for p in style_paths)):
-            raise ValueError("`style_paths` must be a path-like string or a list of path-like strings!")
-        # load style images from disk given that style paths should be an iterable of strings either way
-        # !! try setting this back to the way it was with iterable_to_tensor called before self.preprocess
-            # - I mistakenly thought a cache issue was an issue with saving the style images that way
-        style_imgs = [self.preprocess(IO.read_image(p, IO.ImageReadMode.RGB).pin_memory()) for p in style_paths]
-        return iterable_to_tensor(style_imgs, self.max_size)
-
 
     def stylize(self, content_features: FeatureContainer, style_features: FeatureContainer):
         z_cs = self.feature_aligner.transfer(content_features, style_features)

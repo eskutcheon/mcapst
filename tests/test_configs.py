@@ -112,7 +112,7 @@ def test_inference_config_via_yaml_and_cli(tmp_path, monkeypatch):
     yml.write_text(yaml.safe_dump({
         "input_paths": str(inp),
         "style_paths": str(sty),
-        "alpha_s": [0.2, 0.56, 0.24],
+        "alpha_s": [0.2, 0.56], # needs at least 3 values but now it defaults to that
     }))
     # override modality→video and max_size
     monkeypatch.setattr(sys, "argv", [
@@ -121,7 +121,9 @@ def test_inference_config_via_yaml_and_cli(tmp_path, monkeypatch):
         "--max-size=512"
     ])
     cfg = InferenceConfig(config_path=yml) #, cli_args=sys.argv[1:])
+    print()
     # print(cfg.model_dump())
+    assert cfg.alpha_s == pytest.approx([1/3, 1/3, 1/3])
     assert cfg.modality == "video"
     assert cfg.max_size == 512
 

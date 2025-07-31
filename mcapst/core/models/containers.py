@@ -1,83 +1,30 @@
 
+# TODO: might replace this with pathlib - not yet sure if any I/O steps are going to stay in this file
 import os
 from typing import Dict, List, Literal, Union, Iterable, Optional, Callable
 import functools
 from dataclasses import dataclass, field
-import numpy as np
+from pydantic import BaseModel, Field
+# import numpy as np
 import torch
 import torchvision.transforms.v2 as TT
 import torchvision.io as IO
 # local imports
 from ..utils.utils import ensure_file_list_format
 from ..utils.img_utils import iterable_to_tensor, post_transfer_blending
+from ..utils.config_utils import AlphaWeights, get_default_alpha_weights
 
 
 
+#? NOTE: I replaced the use of StyleWeights for validation/normalization with AlphaWeights,
+#? but it doesn't support np.ndarray or torch.Tensor, so for now, I need to cover that case here
+#? since `AlphaWeights` isn't callable, I'll need to have a decorated function for it
 
-@dataclass
-class StyleWeights:
-    """ Encapsulates weights for either content or style - objects of this type will be managed by StyleWeightContainer """
-    weights: Optional[List[float]] = None
-    weight_type: Literal["content", "style"] = "style"
-    num_items: int = 1
 
-    def __post_init__(self):
-        if self.weights is None:
-            self.weights = self._default_weights()
-        self._validate_weights()
-        self._normalize_weights()
+#     #& I'm considering looking into the pytorch dunder method `__torch_function__` for this to override all calls by pytorch functions
+#     # https://pytorch.org/docs/stable/notes/extending.html#extending-torch-python-api
+#     # https://github.com/docarray/notes/blob/main/blog/02-this-weeks-in-docarray-01.md
 
-    def _default_weights(self) -> List[float]:
-        if self.weight_type == "content":
-            return [0]
-        return [round(1 / self.num_items, 4)] * self.num_items
-
-    #& TEMP: I'll probably be moving some of this upstream to the parsing logic to throw argparse.ArgumentTypeError
-        #& for non-numeric types, so this may be temporary
-    def _validate_weights(self):
-        # ensure the weights are a valid iterable type
-        if not isinstance(self.weights, (list, tuple, np.ndarray, torch.Tensor)):
-            self.weights = [self.weights]
-        elif isinstance(self.weights, (np.ndarray, torch.Tensor)):
-            self.weights = self.weights.tolist()
-        # ensure self.num_items matches the number of style weights
-        if len(self.weights) != self.num_items:
-            #print(f"WARNING: got num_items = {self.num_items}, but len(weights) = {len(self.weights)}; using default weights instead...")
-            self.weights = self._default_weights()
-            self.num_items = len(self.weights)
-        # ensure weights are valid numeric types in [0,1]
-        if not all(isinstance(w, (int, float)) and 0 <= w <= 1 for w in self.weights):
-            raise ValueError(f"All weights must be floats in the range [0, 1]; got {self.weights} with types {[type(w) for w in self.weights]}")
-
-    def _normalize_weights(self):
-        """ normalize the weights to sum to 1 """
-        total: float = sum(self.weights) # assumes that self.weights is an iterable at this point
-        TOL: float = 1e-6 # using a small tolerance to avoid floating point errors in comparing total to 0
-        if total > TOL and self.weight_type == "style":
-            # limiting precision for reproducibility
-            self.weights: List[float] = [round(w/total, 4) for w in self.weights]
-
-    #& I'm considering looking into the pytorch dunder method `__torch_function__` for this to override all calls by pytorch functions
-    # https://pytorch.org/docs/stable/notes/extending.html#extending-torch-python-api
-    # https://github.com/docarray/notes/blob/main/blog/02-this-weeks-in-docarray-01.md
-    #& unused everywhere
-    def to_tensor(self, device: torch.device) -> torch.Tensor:
-        return torch.tensor(self.weights, device=device, dtype=torch.float32)
-
-    def __getitem__(self, idx):
-        return self.weights[idx]
-
-    def __iter__(self):
-        return iter(self.weights)
-
-    def __next__(self):
-        return next(self.weights)
-
-    def __len__(self):
-        return len(self.weights)
-
-    def __repr__(self):
-        return f"StyleWeight(weights={self.weights}, weight_type={self.weight_type}, num_items={self.num_items})"
 
 
 
@@ -104,27 +51,31 @@ def preprocess_and_postprocess(func):
     #& I'm considering looking into the pytorch dunder method `__torch_function__` for this to override all calls by pytorch functions
     # https://pytorch.org/docs/stable/notes/extending.html#extending-torch-python-api
     # https://github.com/docarray/notes/blob/main/blog/02-this-weeks-in-docarray-01.md
-class FeatureContainer(object):
+class FeatureContainer:
     """encapsulation of each set of feature tensors with associated attributes, optional masks, optional scalar weights, etc"""
     def __init__(
         self,
         features: Union[torch.Tensor, Iterable[torch.Tensor]],
         # TODO: remove target tensor later to cut down on the unnecessary storage
         feature_type: Literal["content", "style", "target"],
-        alpha: StyleWeights, #Union[float, List[float], None] = None,
-        mask: Union[torch.Tensor, Iterable[torch.Tensor], None] = None,
+        alpha: Optional[AlphaWeights] = None, #Union[float, List[float], None] = None,
+        mask: Optional[Union[torch.Tensor, Iterable[torch.Tensor]]] = None,
         use_double=True,
         max_size=1280,
     ):
+        #!!! FIXME: need to ensure style image tensors are batched BEFORE being encoded by RevResNet, so move this earlier
         self.feat: torch.Tensor = iterable_to_tensor(features, max_size, is_mask=False) if isinstance(features, list) else features
         # print(f"{feature_type} feature range after `iterable_to_tensor`: {self.feat.min(), self.feat.max()}")
         self.batch_size = self.feat.shape[0]
-        #& totally unused everywhere
+        #& unused everywhere except __repr__
         self.feat_type: str = feature_type
         self.feat_shape_init: torch.Size = self.feat.shape
         self.feat_dtype_init: torch.dtype = self.feat.dtype
         # ? NOTE: should maybe move this to the FeatureFusionModule; I was thinking of doing the same for alpha_c, but I feel like I probably shouldn't
-        self.alpha: StyleWeights = alpha
+        if feature_type in ["content", "style"]:
+            N = self.feat_shape_init[0] if feature_type == "style" else 1 # number of images
+            # TODO: Replace this with `pydantic.BaseModel` `StylizerParams` that enforces this for style features
+            self.alpha = get_default_alpha_weights(alpha, num_items=N, weight_type=feature_type)
         # ? NOTE: may end up moving this as well to enfore mask consistency with the feature tensors
         if mask is not None:
             mask = iterable_to_tensor(mask, max_size, is_mask=True)
@@ -195,16 +146,16 @@ class FeatureContainer(object):
 @dataclass
 class StylizerArgs:
     style_paths: Union[str, List[str], List[torch.Tensor], torch.Tensor]
-    use_segmentation: bool = False
-    use_blending: bool = False
-    alpha_c: Union[float, None] = None
-    alpha_s: Union[float, Iterable[float]] = None
+    use_segmentation: bool = False  #! DELETE
+    use_blending: bool = False      #! DELETE
+    alpha_c: Optional[Union[float, Iterable[float]]] = None
+    alpha_s: Optional[Union[float, Iterable[float]]] = None
     mask_paths: Union[str, List[str], None] = None
     cmask: Optional[torch.Tensor] = None  # Content mask from `sample`
     smask: Optional[List[torch.Tensor]] = field(default_factory=list)  # Style masks, loaded dynamically
     #! both are still used in the VideoStylizer, but not in the ImageStylizer - replace with a forward hook or just return videos to the caller to do it?
-    # save_output: bool = True
-    # output_path: Optional[str] = None
+    save_output: bool = True
+    output_path: Optional[str] = None
 
     def as_dict(self, supported_args: List[str]) -> Dict[str, any]:
         """ Filter arguments based on the supported ones for a specific class or method. """
@@ -213,6 +164,7 @@ class StylizerArgs:
     def construct_postprocessor(self) -> Union[Optional[Callable], None]:
         """ Dynamically create a postprocessor based on current argument values. """
         postprocessors = []
+        #! DELETE "if" block
         if self.use_blending:
             postprocessors.append(post_transfer_blending)
         # FIXME: won't currently work when wrapped by torchvision.transforms container objects

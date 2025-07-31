@@ -5,7 +5,7 @@ import tempfile
 import pytest
 # local imports
 from mcapst.infer.config.config import InferenceConfig
-from mcapst.infer.infer import stage_inference_pipeline, ImageInferenceOrchestrator, VideoInferenceOrchestrator
+from mcapst.infer.infer import ImageInferenceOrchestrator, VideoInferenceOrchestrator
 
 
 @pytest.fixture

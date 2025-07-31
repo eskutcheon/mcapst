@@ -43,14 +43,14 @@ class LossConfig(BaseModel):
         return p
 
 
-#     # TODO: add these later and update train.py to use them - they're currently hardcoded in the orchestrator
+#     # TODO: add these later and update train.py to use them; they're currently hardcoded in the orchestrator
 #     # split: str = "train"  # split of the dataset to use (e.g. "train", "validation", "test")
 #     # buffer_size: int = 0  # buffer size for shuffling in streaming datasets
 
 class LocalDatasetConfig(BaseModel):
     model_config = ConfigDict(discriminator="use_local_data")
     use_local_data: Literal[True] = Field(
-        True, description="Whether to use local directories for train_content & train_style."
+        True, description="Whether to use local directories for 'train-content' & 'train-style'."
     )
     streaming: bool = Field(False, description="Whether to stream from HF in streaming mode (unused when `use-local-data`).")
     train_content: DirectoryPath = Field(..., description="Local directory of content images for training (or HF dataset if not `use-local-data`).")
@@ -85,7 +85,6 @@ class HFDatasetConfig(BaseModel):
     batch_size: PositiveInt = Field(4, description="Number of samples per batch.")
     new_size: int = Field(512, ge=128, description="Resize images to this size during training.")
 
-    # TODO: add default datasets from `orchestrator.py` to be set here instead (and notify user) - also might want this to be a field_validator instead
     @model_validator(mode="after")
     def check_hf_names(self):
         from mcapst.core.utils.utils import test_if_valid_hf_dataset
@@ -113,7 +112,7 @@ class TrainingConfig(BaseConfigModel):
     # TODO: still need to actually implement LR scheduler support
     lr_decay: NonNegativeFloat = Field(0, description="Decay rate for learning rate during training. Default is 0 (constant LR).")
     # the number of batches the trainer goes through - might want to refactor to use epochs eventually, but the original authors used this
-    train_iter: PositiveInt = Field(160_000, description="Total number of training iterations (number of batches to process).")
+    train_iter: PositiveInt = Field(100_000, description="Total number of training iterations (number of batches to process).")
     ckpt_interval: NonNegativeInt = Field(500, description="Interval for saving model checkpoints; Log every `ckpt_interval` batches.")
     grad_max_norm: PositiveFloat = Field(5.0, description="Maximum norm for gradient clipping during training.")  # clamp max norm of the gradient to this
     # destination path with default name based on current date and time or if provided while resume is True, the path to the checkpoint to resume from
@@ -124,7 +123,7 @@ class TrainingConfig(BaseConfigModel):
 
     @field_validator("data_cfg", mode="before")
     def _coerce_data_cfg_bool(cls, v):
-        """ CLI may pass {'use_local_data': 'True'} (a str), but the union discriminator needs a real bool. """
+        """ CLI may pass {'use_local_data': 'True'} (str), but the union discriminator needs a real bool. """
         if isinstance(v, dict) and "use_local_data" in v:
             use_local = v["use_local_data"]
             if isinstance(use_local, str):
@@ -135,9 +134,9 @@ class TrainingConfig(BaseConfigModel):
     def check_ckpt_interval(self):
         """ just print a warning if the interval is 0, but don't raise an error, in case the user doesn't actually want to run in debug mode """
         if self.ckpt_interval == 0:
-            print("WARNING: ckpt_interval is set to 0, which means no checkpoints will be saved during training.")
+            print("\x1b[33mWARNING: ckpt-interval is set to 0, so no checkpoints will be saved during training. Training in debug mode...\x1b[0m")
         elif self.ckpt_interval > self.train_iter:
-            raise ValueError(f"ckpt_interval ({self.ckpt_interval}) must be less than or equal to train_iter ({self.train_iter}).")
+            raise ValueError(f"ckpt-interval ({self.ckpt_interval}) must be less than or equal to train_iter ({self.train_iter}).")
         return self
 
     @model_validator(mode="after")
@@ -151,7 +150,8 @@ class TrainingConfig(BaseConfigModel):
                     try:
                         setattr(self.data_cfg, attr, DEFAULT_HF_DATASETS[transfer_mode][attr])
                     except KeyError:
-                        raise ValueError(f"Default Hugging Face datasets not found with registry keys '{transfer_mode}/{attr}'.")
+                        key_path = f"{transfer_mode}/{attr.replace('_', '-')}"
+                        raise ValueError(f"Default Hugging Face datasets not found with registry keys '{key_path}'.")
                     if not test_if_valid_hf_dataset(getattr(self.data_cfg, attr)):
                         raise ValueError(f"Default Hugging Face dataset '{getattr(self.data_cfg, attr)}' is invalid.")
         return self
@@ -160,7 +160,7 @@ class TrainingConfig(BaseConfigModel):
     def cross_validate(self):
         # video must have temporal weight >0
         if self.modality=='video' and self.loss_cfg.temporal_weight == 0.0:
-            print("WARNING: `temporal_weight` must be greater than 0 for video training; Defaulting to temporal_weight=20.0")
+            print("\x1b[33mWARNING: `temporal-weight` must be greater than 0 for video training; Defaulting to temporal_weight=20.0\x1b[0m")
             self.loss_cfg.temporal_weight = 20.0
         return self
 

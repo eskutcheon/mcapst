@@ -48,8 +48,8 @@ def download_google_drive(
 def prompt_to_download_checkpoint(ckpt_path: str, drive_id: str):
     """ Prompts the user to download a checkpoint if it does not exist """
     from mcapst.core.utils.utils import get_user_confirmation
-    user_prompt = f"Checkpoint file '{ckpt_path}' not found but is required for this use case. Download the default checkpoint now?"
-    if get_user_confirmation(user_prompt):
+    user_prompt = f"CRITICAL: Checkpoint file '{ckpt_path}' not found but is required for this use case. Download the default checkpoint now?"
+    if get_user_confirmation(f"\x1b[33m{user_prompt}\x1b[0m"):
         drive_link = f"https://drive.google.com/uc?export=download&id={drive_id}"
         download_google_drive(drive_link, ckpt_path)
     else:

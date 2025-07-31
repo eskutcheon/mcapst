@@ -64,7 +64,7 @@ class TrainerBase:
         self.current_iter = int(checkpoint["iteration"].item())
         if self.current_iter >= self.total_iterations:
             raise ValueError(f"Resume iteration {self.current_iter} exceeds config's train_iter={self.total_iterations}.")
-        print(f"Resumed from checkpoint at iteration {self.current_iter}")
+        print(f"Resuming from checkpoint at iteration {self.current_iter}...")
 
     def train(self):
         raise NotImplementedError("Train method should be implemented in subclasses.")
@@ -123,8 +123,9 @@ class ImageTrainer(TrainerBase):
         #!! FIXME: align with the old implementation since now alpha_c and alpha_s are treated differently after my major refactor for inference
             #! might require new config options
         # TODO: go back to using the default alpha_c and alpha_s from the original CAP-VSTNet repo to separate their logic from the content-style loss weights
-        alpha_c = self.config.loss_cfg.content_weight
-        alpha_s = self.config.loss_cfg.style_weight
+        alpha_c = 0.0 #self.config.loss_cfg.content_weight
+        batch_size = self.config.data_cfg.batch_size
+        alpha_s = [1.0 / batch_size] * batch_size  # equal weights for each style image in the batch
         grad_clip_magnitude = getattr(self.config, "grad_max_norm", 5.0)  # default value if not specified
         pbar = tqdm(range(self.current_iter, self.total_iterations), miniters=self.config.log_interval, desc="Training Progress")
         for _ in pbar:
@@ -181,8 +182,9 @@ class VideoTrainer(TrainerBase):
     def train(self):
         #!! FIXME: align with the old implementation since now alpha_c and alpha_s are treated differently after my major refactor for inference
             #! -- might require new config options
-        alpha_c = self.config.loss_cfg.content_weight
-        alpha_s = self.config.loss_cfg.style_weight
+        alpha_c = 0.0
+        batch_size = self.config.data_cfg.batch_size
+        alpha_s = [1.0 / batch_size] * batch_size  # equal weights for each style image in the batch
         grad_clip_magnitude = getattr(self.config, "grad_max_norm", 5.0)  # default value if not specified
         pbar = tqdm(range(self.current_iter, self.total_iterations), miniters=self.config.log_interval, desc="Training Progress")
         for _ in pbar:

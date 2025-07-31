@@ -7,8 +7,6 @@ from pydantic_settings import CliApp, CliSettingsSource
 # local imports
 from mcapst.train.config.config import TrainingConfig
 from mcapst.infer.config.config import InferenceConfig
-from mcapst.train.train import stage_training_pipeline
-from mcapst.infer.infer import stage_inference_pipeline
 
 def main(argv=None):
     parser = ArgumentParser(
@@ -41,11 +39,13 @@ def main(argv=None):
     cmd = args.command
     try:
         if cmd == "train":
+            from mcapst.train.train import stage_training_pipeline
             cfg = CliApp.run(
                 TrainingConfig, cli_args=args, cli_settings_source=train_cli_src
             )
             stage_training_pipeline(config=cfg)
         else:  # cmd == "infer"
+            from mcapst.infer.infer import stage_inference_pipeline
             cfg = CliApp.run(
                 InferenceConfig, cli_args=args, cli_settings_source=infer_cli_src
             )
